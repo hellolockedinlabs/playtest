@@ -7,9 +7,12 @@
 <title>Hexbrew raid prototype</title>
 <!--
   Hexbrew phase 2 graybox raid prototype. THROWAWAY CODE: never promote to production.
-  Question: is breaking a self-repairing café fun with squares and circles?
+  Question: is breaking a self-repairing café fun with flat tiles and emoji?
   Deterministic: fixed timestep (DT) + seeded RNG; inputs are tick-stamped and replayable.
   Test hook: window.__proto.simulate({seed, army, prio, inputs, params}).
+  Layout of this file: config + Sim (service sim v2: fixed 26×18 grid, take-out queue + dine-in tables;
+  tools/staff_sweep/extract.js cuts it out at the "UI" marker), then the tester shell (v11: level select,
+  guided raids, card popups, callouts).
 -->
 <style>
   :root { --bg:#1c1e23; --panel:#2a2d35; --panel2:#33363f; --ink:#ececef; --dim:#9b9ea8;
@@ -23,61 +26,120 @@
            cursor:pointer; touch-action:manipulation; }
   button:active { transform:translateY(1px); }
   button.primary { background:var(--accent); color:#1c1e23; border-color:var(--accent); font-weight:700; }
-  #app { max-width:1240px; margin:0 auto; padding:8px 16px 24px; }
-  #top { display:grid; grid-template-columns:auto 1fr auto; gap:10px; align-items:center; margin-bottom:8px; }
-  #phase { font-weight:700; white-space:nowrap; min-width:92px; }
-  @media (max-width: 480px) {                  /* phones: reputation bar gets its own full-width row */
-    #top { grid-template-columns:1fr auto; row-gap:6px; }
-    #repbar { grid-column:1 / -1; grid-row:2; }
-  }
-  .bar { position:relative; height:18px; background:#111; border-radius:9px; overflow:hidden; }
-  .bar > i { position:absolute; left:0; top:0; bottom:0; background:var(--good); }
-  .bar > b { position:absolute; left:50%; top:-2px; bottom:-2px; width:2px; background:#fff8; }
-  .bar > span { position:absolute; inset:0; text-align:center; font-size:12px; line-height:18px; font-weight:600; }
-  #stars { display:flex; gap:6px; align-items:center; white-space:nowrap; }
-  .star { font-size:18px; color:#555; }
-  .star.on { color:var(--accent); }
-  #owbar { width:118px; margin-left:2px; }
-  #owbar > i { background:var(--accent); }
-  #owbar.filling > i { background:var(--bad); }
-  #owbar > span { font-size:11px; }
-  #main { display:flex; flex-direction:column; gap:10px; }
-  #stage { position:relative; align-self:center; width:100%; }
-  canvas { display:block; touch-action:none; border-radius:6px; background:#30333a; margin:0 auto; }
-  #banner { position:absolute; left:50%; top:8px; transform:translateX(-50%); background:#000c;
-            padding:4px 10px; border-radius:6px; font-size:13px; pointer-events:none; opacity:0;
-            transition:opacity .2s; white-space:nowrap; }
+  html, body { height:100%; overflow:hidden; }
+  button.ic { padding:0; width:30px; height:30px; border-radius:8px; font-size:14px; line-height:1; flex:none; }
+  .screen { position:fixed; inset:0; display:none; }
+  .screen.show { display:flex; }
+
+  /* ---- level select ---- */
+  #home { flex-direction:column; align-items:center; overflow-y:auto; padding:14px 16px 24px; }
+  #home .wrap { width:100%; max-width:720px; }
+  #home header { display:flex; align-items:center; gap:10px; }
+  #home h1 { margin:0; font-size:26px; font-weight:800; flex:1; }
+  #home h1 span { color:var(--accent); }
+  #home p.sub { margin:4px 0 0; color:var(--dim); }
+  #home h3 { margin:14px 0 8px; font-size:12px; color:var(--dim); text-transform:uppercase; letter-spacing:.06em; }
+  .lvgrid { display:grid; grid-template-columns:repeat(auto-fill, minmax(200px, 1fr)); gap:8px; }
+  .lv { display:grid; grid-template-columns:auto 1fr; gap:2px 10px; align-items:center; text-align:left; padding:8px 10px;
+        border-radius:12px; background:var(--panel); border:2px solid #444852; }
+  .lv .n { grid-row:1 / 3; width:34px; height:34px; border-radius:50%; background:var(--panel2); display:grid;
+           place-items:center; font-weight:800; font-size:15px; }
+  .lv b { font-size:14px; }
+  .lv small { color:var(--dim); font-size:12px; grid-column:2; }
+  .lv .s { grid-column:1 / 3; color:#666; letter-spacing:2px; font-size:13px; }
+  .lv .s i { color:var(--accent); font-style:normal; }
+  .lv.next { border-color:var(--accent); }
+  .lv.next .n { background:var(--accent); color:#1c1e23; }
+  .lv.locked { opacity:.45; }
+  #homeFoot { margin-top:18px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; color:var(--dim); font-size:12px; }
+
+  /* ---- raid screen: thin strip, map, one card bar ---- */
+  #raid { flex-direction:column; }
+  #strip { display:flex; align-items:center; gap:4px; padding:3px 6px; padding-top:max(3px, env(safe-area-inset-top, 0px));
+           background:var(--panel); flex:none; min-height:36px; }
+  #phase { font-weight:700; font-variant-numeric:tabular-nums; font-size:13px; white-space:nowrap; min-width:34px; }
+  #goals { display:flex; gap:4px; flex:1; min-width:0; align-items:center; overflow:hidden; }
+  .goal { display:flex; align-items:center; gap:3px; background:#1c1e23; border:1px solid var(--line); border-radius:999px;
+          padding:2px 6px; font-size:12px; white-space:nowrap; }
+  .goal .gbar { position:relative; width:26px; height:8px; background:#111; border-radius:4px; overflow:hidden; }
+  .goal .gbar i { position:absolute; left:0; top:0; bottom:0; background:var(--good); }
+  .goal[data-g=chaos] .gbar i { background:var(--accent); }
+  .goal.filling .gbar i { background:var(--bad); }
+  .goal .st { color:#666; font-style:normal; }
+  .goal.won { border-color:var(--accent); }
+  .goal.won .st { color:var(--accent); }
+  .goal.won .gbar { display:none; }
+  .goal:not(.won) .gbar + .st { display:none; }
+  #mid { flex:1; display:flex; flex-direction:column; min-height:0; min-width:0; }
+  #stage { position:relative; flex:1; min-width:0; min-height:0; overflow:hidden; background:#15171b; }
+  #cv { position:absolute; left:0; top:0; width:100%; height:100%; touch-action:none; display:block; }
+  #banner { position:absolute; left:50%; top:8px; transform:translateX(-50%); background:#000c; padding:4px 10px;
+            border-radius:6px; font-size:13px; pointer-events:none; opacity:0; transition:opacity .2s; white-space:nowrap; }
   #banner.show { opacity:1; }
-  #side { display:flex; flex-direction:column; gap:8px; min-width:0; }
-  #misrow { display:flex; align-items:center; gap:8px; }
-  #mispips { display:flex; gap:3px; flex:1; }
-  #mispips i { flex:1; height:16px; border-radius:3px; background:#3a3346; position:relative; overflow:hidden; }
+  #coach { position:absolute; left:8px; right:8px; top:8px; margin:0 auto; max-width:420px; background:#101218f2;
+           border:2px solid var(--accent); border-radius:12px; padding:8px 12px; font-size:15px; line-height:1.3;
+           display:none; pointer-events:none; text-align:center; }
+  #coach.show { display:block; }
+  #coach.low { top:auto; bottom:8px; }
+  #coach.tip { border-color:var(--line); font-size:14px; }
+  #coach small { display:block; color:var(--accent); margin-top:3px; font-size:12px; }
+  #btnSiege { position:absolute; left:50%; bottom:14px; transform:translateX(-50%); padding:10px 22px; font-size:16px;
+              display:none; white-space:nowrap; }
+  #bar { flex:none; background:var(--panel); padding:4px 6px; padding-bottom:max(4px, env(safe-area-inset-bottom, 0px));
+         display:flex; flex-direction:column; gap:4px; }
+  #mis { display:flex; align-items:center; gap:5px; font-size:12px; color:var(--mis); font-weight:700; }
+  #mispips { display:flex; gap:2px; flex:1; }
+  #mispips i { flex:1; height:8px; border-radius:3px; background:#3a3346; position:relative; overflow:hidden; }
   #mispips i.on { background:var(--mis); }
   #mispips i > u { position:absolute; left:0; top:0; bottom:0; background:#a06cd566; }
-  #cards { display:grid; grid-template-columns:repeat(6, 1fr); gap:5px; }
-  .card { background:var(--panel); border:2px solid #444852; border-radius:10px; padding:6px 4px;
-          text-align:center; cursor:pointer; min-height:70px; touch-action:manipulation; }
-  .card .nm { font-weight:700; font-size:13px; }
-  @media (max-width: 480px) { #cards { grid-template-columns:repeat(3, 1fr); } }
-  .card .meta { color:var(--dim); font-size:12px; }
-  .card .cnt { font-size:12px; }
+  #cards { display:flex; gap:5px; justify-content:center; }
+  .card { position:relative; flex:1 1 0; max-width:86px; min-width:0; height:58px; padding:2px; background:var(--panel2);
+          border:2px solid #444852; border-radius:10px; display:flex; flex-direction:column; align-items:center;
+          justify-content:center; }
+  .card .em { font-size:24px; line-height:1.15; }
+  .card .nm { font-size:10px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%; color:var(--dim); }
+  .card .cost { position:absolute; top:-3px; right:-3px; background:var(--mis); color:#fff; border-radius:8px; font-size:11px;
+                font-weight:700; min-width:17px; padding:0 3px; }
+  .card .cnt { position:absolute; top:0; left:4px; font-size:11px; font-weight:700; }
   .card.sel { border-color:var(--accent); background:#3d3a2c; }
-  .card.off { opacity:.38; }
-  .ico { display:inline-block; width:18px; height:18px; border-radius:50%; line-height:18px;
-               font-size:11px; font-weight:800; color:#111; margin-bottom:2px; }
-  #controls { display:flex; gap:6px; flex-wrap:wrap; }
-  #controls button { flex:1 1 auto; padding:7px 8px; }
-  #log { background:var(--panel); border-radius:8px; padding:6px 8px; font-size:12px; color:var(--dim);
-         height:140px; overflow-y:auto; overscroll-behavior:contain;
-         scrollbar-width:thin; touch-action:pan-y; overflow-anchor:none; }
-  #log div:last-child { color:var(--ink); }
-  #legend { font-size:11px; color:var(--dim); }
-  @media (min-width: 900px) {
-    #main { flex-direction:row; align-items:flex-start; }
-    #stage { flex:1 1 auto; width:auto; align-self:flex-start; }   /* top-aligned: side column changes never move the grid */
-    #side { flex:0 0 300px; width:300px; }
-    #cards { grid-template-columns:repeat(2, 1fr); }
-    #log { height:320px; }
+  .card.off { opacity:.4; }
+  @media (orientation:landscape) and (max-height:520px) {      /* phone on its side: cards in a column on the right */
+    #mid { flex-direction:row; }
+    #bar { width:92px; padding:4px; padding-right:max(4px, env(safe-area-inset-right, 0px)); }
+    #cards { flex-direction:column; flex:1; min-height:0; }
+    .card { max-width:none; height:auto; max-height:64px; flex:1 1 0; flex-direction:row; gap:4px; }
+    .card .nm { display:none; }
+    #mis b { display:none; }
+  }
+  #ptr { position:fixed; z-index:9; width:54px; height:54px; margin:-27px 0 0 -27px; border:3px solid var(--accent);
+         border-radius:50%; pointer-events:none; display:none; animation:ptr .9s ease-in-out infinite; }
+  #ptr.show { display:block; }
+  #ptr::after { content:"👆"; position:absolute; left:50%; top:100%; transform:translateX(-50%); font-size:26px; }
+  #ptr.up::after { content:"👇"; top:auto; bottom:100%; }
+  @keyframes ptr { 0%, 100% { transform:scale(1); } 50% { transform:scale(1.18); } }
+  #err { position:fixed; left:0; right:0; bottom:0; z-index:99; background:#b00020; color:#fff; font:12px/1.3 monospace;
+         padding:4px 8px; display:none; white-space:pre-wrap; }
+
+  /* ---- new-card popup and result ---- */
+  #popup .sheet { max-width:400px; }
+  #popup .eyebrow { font-size:12px; letter-spacing:.12em; text-transform:uppercase; color:var(--accent); margin-top:10px; }
+  #popup h2 { font-size:22px; margin:2px 0 6px; }
+  #popup p { margin:6px 0 0; }
+  #demoCv { width:100%; aspect-ratio:10 / 7; border-radius:8px; background:#15171b; display:block; }
+  @media (orientation:landscape) and (max-height:520px) {
+    #popup .sheet { max-width:680px; display:grid; grid-template-columns:1fr 1fr; gap:14px; align-items:center; padding:12px; }
+    #popup .eyebrow { margin-top:0; }
+  }
+  #resGoals { margin:10px 0 0; display:flex; flex-direction:column; gap:8px; }
+  .rg { display:grid; grid-template-columns:22px 1fr; gap:0 6px; }
+  .rg b { font-size:15px; }
+  .rg .why { grid-column:2; color:var(--dim); font-size:13.5px; }
+  #resNote { margin-top:10px; }
+  @media (orientation:landscape) and (max-height:520px) {
+    #resStars { font-size:24px; line-height:1.1; }
+    #resGoals { gap:4px; margin-top:4px; }
+    #result .sheet { max-width:560px; padding:12px 16px; }
+    #result .btns { margin-top:8px; }
   }
   .overlay { position:fixed; inset:0; background:#000a; display:none; align-items:flex-start;
              justify-content:center; overflow-y:auto; z-index:10; padding:16px; }
@@ -165,44 +227,51 @@
   #guide .gd-play { margin-top:32px; }
   #guide .gd-play button { width:100%; padding:12px; font-size:16px; }
   #guide button:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+  .btns.dbgrow { display:none; }
+  body.debug .btns.dbgrow { display:flex; }
 </style>
 </head>
 <body>
-<div id="app">
-  <div id="top">
-    <div id="phase">—</div>
-    <div class="bar" id="repbar"><i></i><span>Café reputation 100%</span></div>
-    <div id="stars">
-      <span class="star" id="stRep" title="Knock café reputation to 0">★</span>
-      <span class="star" id="stVault" title="Vault robbed: a Locksmith escapes with the tier-3 loot">★</span>
-      <span class="star" id="stChaos" title="Chaos: overwhelm the staff">★</span>
-      <div class="bar" id="owbar"><i></i><span>Overwhelm 0</span></div>
-    </div>
-  </div>
-  <div id="main">
-    <div id="stage"><canvas id="cv"></canvas><div id="banner"></div></div>
-    <div id="side">
-      <div id="misrow"><b style="color:var(--mis)">Mischief</b><div id="mispips"></div><span id="misnum">5</span></div>
-      <div id="cards"></div>
-      <div id="controls">
-        <button id="btnSiege" class="primary">Start siege</button>
-        <button id="btnEnd">End raid</button>
-        <button id="btnPause">Pause</button>
-        <button id="btnSpeed">1×</button>
-        <button id="btnGuide">How to play</button>
-        <button id="btnDebug" hidden>Debug</button>
-        <button id="btnSetup">Setup</button>
-      </div>
-      <div id="log"></div>
-      <div id="legend">Green S/F/G = staff (Serve/Fix/Guard first; bar under = Energy, ⚡ = Neuroshocked, zz = fainted) · grey = customers (red = impatient; coloured dot = their order) ·
-        yellow = Crowd Rush ("?" on a G = checking a crowd member; orange dot = dropped food) · L = Locksmith (picks T1 till / T2 stash / T3 vault; $ sack = carried loot: catch it before the window) ·
-        V = Vampire (drains Energy; red ring = latched; won't enter lantern light) · O = Poltergeist (drifts through walls, faded = can't be caught; blue station = haunted) ·
-        W = Warden Hound (dashed brown = patrol zone, blue ring = reveal range; WOOF = pinned a Locksmith) · warm tiles = Lantern light · dark disc = Blackout ·
-        red ! = a problem (a station that's down, or a fainted staff) nobody is answering (the Overwhelm bar fills while there is one)</div>
+<div class="screen" id="home">
+  <div class="wrap">
+    <header><h1>Hex<span>brew</span></h1><button id="btnHelpHome" class="ic" aria-label="How to play">?</button></header>
+    <p class="sub">Break into rival cafés. Start with raid 1.</p>
+    <div id="levelList"></div>
+    <div id="homeFoot">
+      <span id="buildStamp"></span>
+      <button id="btnSetup" hidden>Setup</button>
+      <button id="btnDebug" hidden>Debug</button>
+      <button id="btnResetProg" hidden>Reset progress</button>
     </div>
   </div>
 </div>
 
+<div class="screen" id="raid">
+  <div id="strip">
+    <div id="phase">—</div>
+    <div id="goals"></div>
+    <button id="btnPause" class="ic" aria-label="Pause">⏸</button>
+    <button id="btnSpeed" class="ic" aria-label="Speed">1×</button>
+    <button id="btnGuide" class="ic" aria-label="How to play">?</button>
+    <button id="btnEnd" class="ic" aria-label="End raid">✕</button>
+  </div>
+  <div id="mid">
+    <div id="stage">
+      <canvas id="cv"></canvas>
+      <div id="banner"></div>
+      <div id="coach"></div>
+      <button id="btnSiege" class="primary">Start siege</button>
+    </div>
+    <div id="bar">
+      <div id="mis"><b>✨</b><div id="mispips"></div><span id="misnum">0</span></div>
+      <div id="cards"></div>
+    </div>
+  </div>
+</div>
+<div id="ptr"></div>
+<div id="err"></div>
+
+<!-- Old Setup sheet: only reachable with ?debug=1 -->
 <div class="overlay" id="setup">
   <div class="sheet">
     <div class="row"><h2 class="grow" style="margin:0">Raid setup</h2><button id="btnGuideSetup">How to play</button></div>
@@ -221,23 +290,40 @@
     <h3>Seed</h3>
     <div class="row"><input type="number" id="seedIn" class="grow" min="0" step="1"><button id="seedRand">Random</button></div>
     <div class="btns"><button id="btnStart" class="primary">Start raid (scout)</button></div>
-    <div class="note" id="buildStamp"></div>
   </div>
 </div>
 
 <div class="overlay" id="result">
   <div class="sheet">
-    <h2 id="resTitle">Raid over</h2>
+    <div class="row"><h2 id="resTitle" class="grow" style="margin:0">Raid over</h2><button id="btnResHome" class="ic" aria-label="All raids">☰</button></div>
     <div id="resStars">☆☆☆</div>
-    <div id="resBody"></div>
+    <div id="resGoals"></div>
+    <div id="resNote" class="note"></div>
     <div class="btns">
-      <button id="btnRestart" class="primary">Restart same seed</button>
+      <button id="btnNext" class="primary">Next raid ▸</button>
+      <button id="btnRetry">Try again</button>
+    </div>
+    <div class="btns dbgrow">
       <button id="btnReplay">Replay my inputs</button>
       <button id="btnNewSeed">New seed</button>
       <button id="btnToSetup">Setup</button>
       <button id="btnCopy">Copy results</button>
     </div>
     <textarea id="copyBox" rows="10" readonly hidden aria-label="Results text"></textarea>
+  </div>
+</div>
+
+<!-- New-card popup: the small canvas runs a second Sim with scripted inputs (DEMOS), looping -->
+<div class="overlay" id="popup">
+  <div class="sheet">
+    <canvas id="demoCv"></canvas>
+    <div>
+      <div class="eyebrow" id="popEyebrow">New card</div>
+      <h2 id="popName"></h2>
+      <p id="popDoes"></p>
+      <p class="note" id="popMeta"></p>
+      <div class="btns"><button id="popOk" class="primary">Got it</button></div>
+    </div>
   </div>
 </div>
 
@@ -255,14 +341,14 @@
     <p class="gd-eyebrow">Playtest guide · prototype</p>
     <h1>Hex<span>brew</span></h1>
     <p class="gd-lead">You run a crew of magical troublemakers, and tonight's target is someone else's café. Send them in, cast spells, and break the place before the timer runs out. The café fights back on its own: its staff and defenses react to everything you do.</p>
-    <p class="gd-graybox">There's no art yet. Everything is circles, squares and letters. Judge the decisions and the tension, not the looks.</p>
+    <p class="gd-graybox">There's no art yet. Everything is flat tiles and emoji. Judge the decisions and the tension, not the looks.</p>
   </header>
 
   <section>
     <h2>The goal: up to 3 stars</h2>
     <div class="gd-stars">
-      <div class="gd-star"><b>Ruin its reputation</b><p>Reputation starts at 100%. Unhappy customers walking out and customers turned away from a full queue push it down. Get it to 0.</p></div>
-      <div class="gd-star"><b>Rob the vault</b><p>A Locksmith has to pick the vault (T3) and get back out the window. If staff catch it on the way out, the loot goes back.</p></div>
+      <div class="gd-star"><b>Ruin its reputation</b><p>Reputation starts at 100%. Customers who give up and walk out, and customers turned away because the queue is full or there is no table, push it down. Get it to 0.</p></div>
+      <div class="gd-star"><b>Rob the vault</b><p>A Locksmith has to pick the vault (💎) and get back out the window. If staff catch it on the way out, the loot goes back.</p></div>
       <div class="gd-star"><b>Overwhelm the staff</b><p>Break more than the staff can handle. The Overwhelm bar fills while any problem has nobody on it and drains when they catch up. Star at <span data-p="overwhelmMax"></span>.</p></div>
     </div>
   </section>
@@ -270,11 +356,11 @@
   <section>
     <h2>How a raid goes</h2>
     <ol class="gd-flow">
-      <li><div><b>Setup</b><p>Pick a café level and build your army. The army has <span data-p="armyCap"></span> space, and each card uses some of it. Leave the staff priorities and the seed as they are.</p></div></li>
+      <li><div><b>Pick a raid</b><p>The first three raids are guided and add one card each. After them, each café adds one defense. Your army is chosen for you.</p></div></li>
       <li><div><b>Scout</b> <span class="gd-tag"><span data-p="scoutTime" data-fmt="dur"></span>, free</span><p>Look at the layout, the staff and the entry points. Traps stay hidden. Tap <i>Start siege</i> when you're ready.</p></div></li>
       <li><div><b>Siege</b> <span class="gd-tag"><span data-p="siegeTime" data-fmt="dur"></span></span><p>Tap a troublemaker card, then tap a highlighted entry point to send it in. Once it's in, you can't steer it. Tap a spell card, then tap anywhere on the map to cast it. Every card costs <span class="m">Mischief</span>, which holds up to <span data-p="mischiefMax"></span> and refills by 1 every <span data-p="mischiefRegen" data-fmt="s"></span>. Choosing when to spend it is the main skill.</p></div></li>
       <li><div><b>Closing</b> <span class="gd-tag">~5 s</span><p>The café closes and everyone still inside walks out. Customers in a bad mood still cost reputation on the way out, so a raid can win a star right at the end.</p></div></li>
-      <li><div><b>Result</b><p>Stars and loot. Try the same café again or move up a level.</p></div></li>
+      <li><div><b>Result</b><p>Stars, and one line on why you missed each one. Try again or move on.</p></div></li>
     </ol>
   </section>
 
@@ -283,28 +369,35 @@
     <p class="gd-muted">Each one does one thing and enters through one kind of entry point.</p>
     <div class="gd-units">
       <div class="gd-unit">
-        <span class="gd-ico" style="background:#e8c547">R</span>
+        <span class="gd-ico" style="background:#e8c547">👥</span>
         <div>
-          <div class="gd-uhead"><h3>Crowd Rush</h3><span class="gd-stat">door · <em data-p="costCrowd"></em> Mischief · <span data-p="spaceCrowd"></span> space</span></div>
-          <p>A group of <span data-p="crowdSize"></span> fake customers who fill the queue with slow orders. While they wait, real customers lose patience faster. They pass as customers, so staff can't throw them out. They sometimes drop food, which distracts the Warden Hound.</p>
+          <div class="gd-uhead"><h3>Crowd Rush</h3><span class="gd-stat">take-out door · <em data-p="costCrowd"></em> Mischief · <span data-p="spaceCrowd"></span> space</span></div>
+          <p>A group of <span data-p="crowdSize"></span> fake customers who fill the take-out queue with slow orders. While they wait, real customers lose patience faster. They pass as customers, so staff can't throw them out. They sometimes drop food, which distracts the Warden Hound.</p>
         </div>
       </div>
       <div class="gd-unit">
-        <span class="gd-ico" style="background:#c17bff">L</span>
+        <span class="gd-ico" style="background:#e89a47">🪑</span>
+        <div>
+          <div class="gd-uhead"><h3>Table Hoggers</h3><span class="gd-stat">dining door · <em data-p="costHog"></em> Mischief · <span data-p="spaceHog"></span> space</span></div>
+          <p>A group of <span data-p="hogSize"></span> fake diners who each take a table, order slowly and then sit there for <span data-p="hogLinger" data-fmt="s"></span>. Real diners find no table, wait, and leave angry. Each one leaves a dirty table behind. Staff can't throw them out.</p>
+        </div>
+      </div>
+      <div class="gd-unit">
+        <span class="gd-ico" style="background:#c17bff">🥷</span>
         <div>
           <div class="gd-uhead"><h3>Locksmith</h3><span class="gd-stat">window · <em data-p="costLock"></em> Mischief · <span data-p="spaceLock"></span> space</span></div>
-          <p>Sneaks to the nearest unpicked lock and picks it: the register till (T1, <span data-p="lockT1" data-fmt="s"></span>, jams the register), the pantry stash (T2, <span data-p="lockT2" data-fmt="s"></span>), or the vault (T3, <span data-p="lockT3" data-fmt="s"></span>). Loot only counts if it escapes. A $ sack means it's carrying loot.</p>
+          <p>Sneaks to the nearest unpicked lock and picks it: the register till (💵, <span data-p="lockT1" data-fmt="s"></span>, jams the register), the pantry stash (📦, <span data-p="lockT2" data-fmt="s"></span>), or the vault (💎, <span data-p="lockT3" data-fmt="s"></span>). Loot only counts if it escapes. A 💰 sack means it's carrying loot.</p>
         </div>
       </div>
       <div class="gd-unit">
-        <span class="gd-ico" style="background:#d0314f">V</span>
+        <span class="gd-ico" style="background:#d0314f">🧛</span>
         <div>
           <div class="gd-uhead"><h3>Vampire</h3><span class="gd-stat">chimney · <em data-p="costVamp"></em> Mischief · <span data-p="spaceVamp"></span> space</span></div>
           <p>Latches onto a staff member and drains their Energy. Drained staff work slower, and at zero they faint for <span data-p="faintTime" data-fmt="s"></span>. It won't step into lantern light and can't latch onto Guard-first staff. It leaves after <span data-p="vampLife" data-fmt="s"></span>.</p>
         </div>
       </div>
       <div class="gd-unit">
-        <span class="gd-ico" style="background:#dfe6f0">O</span>
+        <span class="gd-ico" style="background:#dfe6f0">👻</span>
         <div>
           <div class="gd-uhead"><h3>Poltergeist</h3><span class="gd-stat">any outer wall · <em data-p="costPolt"></em> Mischief · <span data-p="spacePolt"></span> space</span></div>
           <p>Drifts through walls and haunts the nearest working station (it turns blue), which then serves nothing until staff fix it. It haunts <span data-p="poltHaunts"></span> stations, then fades. Staff can't catch it while it's inside a wall.</p>
@@ -317,14 +410,14 @@
     <h2>Your spells</h2>
     <div class="gd-units">
       <div class="gd-unit">
-        <span class="gd-ico sq" style="background:#7fe3ff">N</span>
+        <span class="gd-ico sq" style="background:#7fe3ff">⚡</span>
         <div>
           <div class="gd-uhead"><h3>Neuroshock</h3><span class="gd-stat">cast anywhere · <em data-p="costShock"></em> Mischief · <span data-p="spaceShock"></span> space</span></div>
           <p>Stuns every staff member in a small circle for <span data-p="shockStun" data-fmt="s"></span>, and they drop whatever they were doing. A stunned staff member can't be shocked again for <span data-p="shockImmune" data-fmt="s"></span>, so you can't chain it.</p>
         </div>
       </div>
       <div class="gd-unit">
-        <span class="gd-ico sq" style="background:#6b5bd6;color:#fff">B</span>
+        <span class="gd-ico sq" style="background:#6b5bd6;color:#fff">🌑</span>
         <div>
           <div class="gd-uhead"><h3>Blackout</h3><span class="gd-stat">cast anywhere · <em data-p="costDark"></em> Mischief · <span data-p="spaceDark"></span> space</span></div>
           <p>Kills the lights in an area for <span data-p="darkDuration" data-fmt="s"></span>. Staff inside move slower and only notice trouble right next to them. Lanterns in the area go out, so a Vampire can get in. The Warden Hound works by smell and isn't affected.</p>
@@ -336,38 +429,38 @@
   <section>
     <h2>What defends the café</h2>
     <p class="gd-muted">The owner isn't online. Everything below runs on its own.</p>
-    <h3>Staff (3, shown as green S / F / G)</h3>
+    <h3>Staff (3 to 6, more in bigger cafés)</h3>
     <div class="gd-roles">
-      <div class="gd-role"><b>S · Serve first</b><p>Keeps customers happy. Takes Crowd Rush orders at normal speed.</p></div>
-      <div class="gd-role"><b>F · Fix first</b><p>Repairs haunted and jammed stations fast.</p></div>
-      <div class="gd-role"><b>G · Guard first</b><p>Spots and throws out intruders from farther away. Vampires can't latch onto them.</p></div>
+      <div class="gd-role"><b>🧑‍🍳 Serve first</b><p>Keeps customers happy: takes orders, brings food to tables and cleans them. Takes Crowd Rush and Table Hogger orders at normal speed.</p></div>
+      <div class="gd-role"><b>🧑‍🔧 Fix first</b><p>Repairs haunted and jammed stations fast.</p></div>
+      <div class="gd-role"><b>💂 Guard first</b><p>Spots and throws out intruders from farther away. Vampires can't latch onto them.</p></div>
     </div>
     <p class="gd-muted" style="font-size:14px">Staff do their own job at full speed and other jobs at <span data-p="offRole" data-fmt="speed"></span>. The bar under each staff member is their Energy.</p>
 
     <div class="gd-units">
       <div class="gd-unit">
-        <span class="gd-ico" style="background:#b07a4a">W</span>
+        <span class="gd-ico" style="background:#b07a4a">🐕</span>
         <div>
           <div class="gd-uhead"><h3>Warden Hound</h3><span class="gd-stat">visible</span></div>
-          <p>A guard dog that patrols its zone (the dashed brown area). It sniffs out nearby troublemakers so staff can see them, even in a Blackout. If it reaches a Locksmith, it pins it for <span data-p="houndPin" data-fmt="s"></span> and barks for a guard (WOOF). Dropped food distracts it.</p>
+          <p>A guard dog that patrols its zone (the dashed brown area). It sniffs out nearby troublemakers so staff can see them, even in a Blackout. If it reaches a Locksmith, it pins it for <span data-p="houndPin" data-fmt="s"></span> and barks for a guard. Dropped food distracts it.</p>
         </div>
       </div>
       <div class="gd-unit">
-        <span class="gd-ico sq" style="background:#8a8f9c">T2</span>
+        <span class="gd-ico sq" style="background:#8a8f9c">📦</span>
         <div>
           <div class="gd-uhead"><h3>Mimic</h3><span class="gd-pill">hidden trap</span></div>
           <p>A fake pantry stash that looks exactly like the real one. When a Locksmith tries to pick it, it grabs the Locksmith for <span data-p="mimicGrab" data-fmt="s"></span> and eats any loot it's carrying. It works once.</p>
         </div>
       </div>
       <div class="gd-unit">
-        <span class="gd-ico sq" style="background:#e9b872">☀</span>
+        <span class="gd-ico sq" style="background:#e9b872">🏮</span>
         <div>
           <div class="gd-uhead"><h3>Lantern</h3><span class="gd-stat">visible · warm tiles</span></div>
           <p>Lights the area around the counter. Vampires won't enter the light and let go of anyone who walks into it. A Blackout puts it out for a while.</p>
         </div>
       </div>
       <div class="gd-unit">
-        <span class="gd-ico sq" style="background:#e5484d">!</span>
+        <span class="gd-ico sq" style="background:#e5484d">🔔</span>
         <div>
           <div class="gd-uhead"><h3>Alarm Bell</h3><span class="gd-pill">hidden trap</span></div>
           <p>Hidden in the vault room. The first Locksmith or Poltergeist to touch it alerts every staff member at once. It works once.</p>
@@ -378,16 +471,16 @@
 
   <section>
     <h2>Café levels</h2>
-    <p class="gd-muted">Each level adds one defense. Start at 1.</p>
+    <p class="gd-muted">Every café is the same size. After the three guided raids, each one has more in it: more staff, more tables, more customers, and one new defense.</p>
     <div class="gd-tablewrap">
       <table>
-        <tr><td>Level 1</td><td>No defenses. All 3 staff are Serve first.</td></tr>
+        <tr><td>Level 1</td><td>No defenses. 3 staff, all Serve first. 4 tables.</td></tr>
         <tr><td>Level 2</td><td>One staff switches to Fix first.</td></tr>
-        <tr><td>Level 3</td><td>One staff switches to Guard first.</td></tr>
-        <tr><td>Level 4</td><td>+ Warden Hound</td></tr>
-        <tr><td>Level 5</td><td>+ Mimic</td></tr>
-        <tr><td>Level 6</td><td>+ Lantern</td></tr>
-        <tr><td>Level 7</td><td>+ Alarm Bell (the full café)</td></tr>
+        <tr><td>Level 3</td><td>4 staff, one of them Guard first. 5 tables.</td></tr>
+        <tr><td>Level 4</td><td>+ Warden Hound. 6 tables.</td></tr>
+        <tr><td>Level 5</td><td>+ Mimic. 5 staff.</td></tr>
+        <tr><td>Level 6</td><td>+ Lantern. 7 tables.</td></tr>
+        <tr><td>Level 7</td><td>+ Alarm Bell (the full café). 6 staff, 8 tables.</td></tr>
       </table>
     </div>
   </section>
@@ -395,27 +488,29 @@
   <section>
     <h2>Reading the screen</h2>
     <dl>
-      <dt>Top bar</dt><dd>Café reputation. Your target is 0.</dd>
-      <dt class="g">★ ★ ★</dt><dd>Stars won so far. The small bar next to them is Overwhelm.</dd>
+      <dt>💎 😡 ❗</dt><dd>Your goals, at the top. Each turns gold when you win it. The 😡 bar is the café's reputation (your target is 0); the ❗ bar is Overwhelm.</dd>
+      <dt>The map</dt><dd>Drag to move it, pinch to zoom.</dd>
       <dt class="r">Red !</dt><dd>A problem nobody is handling: a broken station or a fainted staff member. Overwhelm fills while one is showing.</dd>
-      <dt class="m">Mischief</dt><dd>Your spending meter. It refills on its own.</dd>
-      <dt>Grey dots</dt><dd>Customers. They turn red when they're losing patience.</dd>
-      <dt class="gr">⚡ / zz</dt><dd>A staff member who is stunned or fainted.</dd>
+      <dt class="m">✨ Mischief</dt><dd>Your spending meter. It refills on its own.</dd>
+      <dt>🙂 😐 😠</dt><dd>Customers, losing patience. 😎 are your Crowd Rush and Table Hoggers.</dd>
+      <dt>🥡 and 🍽️</dt><dd>The two customer doors. Take-out customers (🥡) queue at the register. Dine-in customers (🍽️) sit at a table, order (✋), eat and leave.</dd>
+      <dt>Dark table</dt><dd>A dirty table with dishes on it. Nobody can sit there until a staff member cleans it. 🪴 is a spot with no table yet.</dd>
+      <dt class="gr">💫 / 💤</dt><dd>A staff member who is stunned or fainted.</dd>
       <dt>Dark disc</dt><dd>A Blackout in progress.</dd>
-      <dt>Pause, 1×</dt><dd>Pause the raid or change its speed. Use them whenever you like.</dd>
+      <dt>⏸, 1×, ✕</dt><dd>Pause the raid, change its speed, or end it (✕ twice). Use them whenever you like.</dd>
     </dl>
   </section>
 
   <section class="gd-testers">
     <h2>For playtesters</h2>
     <ul>
-      <li>Start at Level 1 and go up when you feel ready.</li>
+      <li>Start at raid 1; each raid you win opens the next.</li>
       <li>Say what you're thinking out loud: what you're trying, what surprised you, what annoyed you.</li>
       <li>If you want to stop, say so. If you want one more try, say that too. Both answers help.</li>
     </ul>
   </section>
 
-  <div class="gd-play"><button id="gdPlay" class="primary">Play</button></div>
+  <div class="gd-play"><button id="gdPlay" class="primary">Back</button></div>
 
 </div>
 </div>
@@ -440,50 +535,60 @@
 // is PARAM_DEFS below. Nothing else in this file holds a game number.
 // ============================================================================================
 const DT = 1 / 30;            // fixed sim step
-const W = 20, H = 14;         // grid
+const W = 26, H = 18;         // grid: the same size at every café level (higher levels fill it with more)
 const DIRS = [[0, -1], [1, 0], [0, 1], [-1, 0]];   // fixed order = deterministic tie-break
 
 const ENTRIES = {             // wall tiles; *_IN is the floor tile where things appear
-  door:    { x: 14, y: 13, inX: 14, inY: 12, label: 'Door' },
-  window:  { x: 0,  y: 8,  inX: 1,  inY: 8,  label: 'Window' },
-  chimney: { x: 15, y: 0,  inX: 15, inY: 2,  label: 'Chimney' },
+  door:    { x: 11, y: 17, inX: 11, inY: 16, label: 'Take-out door' },
+  dine:    { x: 25, y: 13, inX: 24, inY: 13, label: 'Dining door' },
+  window:  { x: 0,  y: 10, inX: 1,  inY: 10, label: 'Window' },
+  chimney: { x: 17, y: 0,  inX: 17, inY: 2,  label: 'Chimney' },
 };
 const STATIONS = [            // (x,y) station tile, (wx,wy) where staff stand to work it
-  { key: 'counter', name: 'Register', short: 'REG', x: 10, y: 8, wx: 10, wy: 7 },
-  { key: 'coffee',  name: 'Coffee',   short: 'COF', x: 12, y: 3, wx: 12, wy: 4 },
-  { key: 'oven',    name: 'Oven',     short: 'OVN', x: 15, y: 1, wx: 15, wy: 2 },
-  { key: 'pastry',  name: 'Pastry',   short: 'PAS', x: 7,  y: 5, wx: 7,  wy: 6 },
+  { key: 'counter', name: 'Register', short: 'REG', x: 11, y: 8, wx: 11, wy: 7 },
+  { key: 'coffee',  name: 'Coffee',   short: 'COF', x: 13, y: 3, wx: 13, wy: 4 },
+  { key: 'oven',    name: 'Oven',     short: 'OVN', x: 17, y: 1, wx: 17, wy: 2 },
+  { key: 'pastry',  name: 'Pastry',   short: 'PAS', x: 9,  y: 5, wx: 9,  wy: 6 },
 ];
 const ITEMS = [1, 2, 3];      // station index for coffee / oven bread / pastry
-const ORDER_SPOT = [10, 7];   // staff take orders and hand over here
+const ORDER_SPOT = [11, 7];   // staff take take-out orders and hand over here
 // Locks the Locksmith picks. (x,y) = the lock, (sx,sy) = where it stands to pick. Tier sets the pick
 // time and the loot (lockT1..3 / lootT1..3). The till is on the counter; picking it jams the register.
 const LOCKS = [
-  { key: 'till',  name: 'Register till', short: 'T1', tier: 1, x: 9,  y: 8, sx: 9,  sy: 7 },
-  { key: 'stash', name: 'Pantry stash',  short: 'T2', tier: 2, x: 18, y: 1, sx: 18, sy: 2 },
+  { key: 'till',  name: 'Register till', short: 'T1', tier: 1, x: 10, y: 8, sx: 10, sy: 7 },
+  { key: 'stash', name: 'Pantry stash',  short: 'T2', tier: 2, x: 23, y: 1, sx: 23, sy: 2 },
   { key: 'vault', name: 'Vault',         short: 'T3', tier: 3, x: 1,  y: 2, sx: 2,  sy: 2 },
 ];
 // The Mimic: a fake tier-2 stash on the way to the vault, drawn exactly like the real one until it bites.
-const MIMIC = { key: 'mimic', name: 'Pantry stash', short: 'T2', tier: 2, x: 6, y: 1, sx: 6, sy: 2 };
-const LANTERNS = [[10, 6]];   // lit area (lanternRadius) around each: the Vampire won't enter it
-const HOUND_HOME = [4, 7];    // centre of the Warden Hound's patrol zone (houndZone tiles across each way)
-const QUEUE_SLOTS = [[10, 9], [10, 10], [10, 11], [11, 11], [12, 11], [13, 11], [14, 11], [15, 11]];
-const PICKUPS = [[8, 9], [12, 9], [7, 9], [13, 9], [9, 10]];
+const MIMIC = { key: 'mimic', name: 'Pantry stash', short: 'T2', tier: 2, x: 8, y: 1, sx: 8, sy: 2 };
+const LANTERNS = [[11, 6]];   // lit area (lanternRadius) around each: the Vampire won't enter it
+const HOUND_HOME = [6, 8];    // centre of the Warden Hound's patrol zone (houndZone tiles across each way)
+// Take-out: customers come in by ENTRIES.door, queue here, then wait at a pickup spot.
+const QUEUE_SLOTS = [[11, 9], [11, 10], [11, 11], [11, 12], [10, 12], [9, 12], [8, 12], [7, 12]];
+const PICKUPS = [[9, 9], [13, 9], [8, 9], [14, 9], [10, 10]];
+// Dine-in: customers come in by ENTRIES.dine and sit at a table. (x,y) = the table, (sx,sy) = the seat,
+// (wx,wy) = where staff stand to take the order, serve and clean. A level uses the first `tables` of them;
+// the rest are plant pots (the tile is blocked either way, so paths are the same at every level).
+const TABLES = [[17, 11], [19, 11], [21, 11], [23, 11], [17, 15], [19, 15], [21, 15], [23, 15]].map(([x, y], i) =>
+  ({ i, x, y, sx: x, sy: y < 13 ? y + 1 : y - 1, wx: x, wy: y < 13 ? y - 1 : y + 1 }));
+const WAIT_SPOTS = [[23, 13], [22, 13], [21, 13], [20, 13], [19, 13], [18, 13]];   // waiting line for a table
 const BELL = [4, 2];
-const STAFF_START = [[10, 6], [12, 5], [8, 6]];
-const WALLS = [[5, 1], [5, 3], [1, 4], [2, 4], [3, 4], [4, 4], [5, 4],      // vault room
-  [7, 8], [8, 8], [12, 8], [13, 8],                                         // counter line
-  [3, 11], [4, 11], [5, 11], [17, 6], [18, 6]];                             // dividers
+const STAFF_START = [[11, 6], [13, 5], [9, 7], [15, 6], [17, 4], [19, 8]];        // up to 6 staff
+const WALLS = [[6, 1], [6, 3], [6, 4], [1, 5], [2, 5], [3, 5], [4, 5], [5, 5], [6, 5],   // vault room
+  [8, 8], [9, 8], [13, 8], [14, 8],                                           // counter line
+  [15, 10], [15, 11], [15, 12], [15, 13], [15, 14], [15, 15], [15, 16],       // take-out | dining
+  [3, 13], [4, 13], [5, 13], [20, 6], [21, 6]];                               // dividers
 
-const GRID = new Uint8Array(W * H);   // 0 floor, 1 wall, 2 station/lock, 3 entry
+const GRID = new Uint8Array(W * H);   // 0 floor, 1 wall, 2 station/lock/table, 3 entry
 (function buildGrid() {
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++)
     if (x === 0 || y === 0 || x === W - 1 || y === H - 1) GRID[y * W + x] = 1;
   for (const [x, y] of WALLS) GRID[y * W + x] = 1;
   for (const k in ENTRIES) GRID[ENTRIES[k].y * W + ENTRIES[k].x] = 3;
   for (const s of STATIONS) GRID[s.y * W + s.x] = 2;
-  GRID[8 * W + 9] = 2; GRID[8 * W + 11] = 2;          // counter is 3 tiles wide
+  GRID[8 * W + 10] = 2; GRID[8 * W + 12] = 2;         // counter is 3 tiles wide
   for (const l of LOCKS.concat(MIMIC)) GRID[l.y * W + l.x] = 2;
+  for (const t of TABLES) GRID[t.y * W + t.x] = 2;
 })();
 const walkable = (x, y) => x >= 0 && y >= 0 && x < W && y < H && GRID[y * W + x] === 0;
 
@@ -598,6 +703,7 @@ const PARAM_DEFS = [
   ['mischiefMax', 'Max', 10, 4, 20, 1, 'Mischief'],
   ['mischiefRegen', 'Seconds per +1', 1.5, 0.3, 5, 0.1, 'Mischief'],
   ['costCrowd', 'Cost: Crowd Rush', 3, 1, 10, 1, 'Mischief'],
+  ['costHog', 'Cost: Table Hoggers', 3, 1, 10, 1, 'Mischief'],
   ['costLock', 'Cost: Locksmith', 4, 1, 10, 1, 'Mischief'],
   ['costVamp', 'Cost: Vampire', 4, 1, 10, 1, 'Mischief'],
   ['costPolt', 'Cost: Poltergeist', 4, 1, 10, 1, 'Mischief'],
@@ -605,6 +711,7 @@ const PARAM_DEFS = [
   ['costDark', 'Cost: Blackout', 3, 1, 10, 1, 'Mischief'],
   ['armyCap', 'Army capacity', 12, 4, 40, 1, 'Army'],
   ['spaceCrowd', 'Space: Crowd Rush', 2, 1, 10, 1, 'Army'],
+  ['spaceHog', 'Space: Table Hoggers', 2, 1, 10, 1, 'Army'],
   ['spaceLock', 'Space: Locksmith', 3, 1, 10, 1, 'Army'],
   ['spaceVamp', 'Space: Vampire', 1, 1, 10, 1, 'Army'],
   ['spacePolt', 'Space: Poltergeist', 2, 1, 10, 1, 'Army'],
@@ -622,18 +729,29 @@ const PARAM_DEFS = [
   ['guardHelpQ', 'Guard-first staff help serve when queue >= (if they don\'t serve)', 3, 1, 8, 1, 'Staff'],
   ['orderTime', 'Take order (s)', 1, 0.2, 5, 0.1, 'Staff'],
   ['prepTime', 'Prep item (s)', 1.5, 0.2, 6, 0.1, 'Staff'],
+  ['tableOrderTime', 'Take an order at a table (s)', 1.5, 0.2, 5, 0.1, 'Staff'],
+  ['cleanTime', 'Clean a dirty table (s)', 3, 0.5, 10, 0.5, 'Staff'],
   ['repairJam', 'Repair: unjam / clear a haunt (s)', 5, 0.5, 15, 0.5, 'Staff'],
   ['energyMax', 'Energy max', 100, 10, 200, 5, 'Staff'],
   ['energyRegen', 'Energy regen per s while no Vampire is latched', 5, 0, 30, 0.5, 'Staff'],
   ['workMin', 'Work speed at 0 Energy (share of full)', 0.5, 0.1, 1, 0.05, 'Staff'],
   ['faintTime', 'Faint at 0 Energy (s)', 4, 0.5, 15, 0.5, 'Staff'],
   ['custSpeed', 'Walk speed (tiles/s)', 2, 0.5, 5, 0.1, 'Customers'],
-  ['arrival', 'New customer every (s)', 3.2, 1, 12, 0.1, 'Customers'],
-  ['patience', 'Patience (s)', 35, 5, 120, 1, 'Customers'],
-  ['queueMax', 'Queue max (else turned away)', 6, 2, 8, 1, 'Customers'],
-  ['repUnhappy', 'Loss: left unhappy', 16, 0, 25, 0.5, 'Café reputation'],
-  ['repTurnAway', 'Loss: turned away', 8, 0, 25, 0.5, 'Café reputation'],
-  ['repHappy', 'Gain: served', 2, 0, 5, 0.1, 'Café reputation'],
+  ['arrival', 'Take-out: new customer every (s; busier café levels lower it)', 6.5, 1, 12, 0.1, 'Customers'],
+  ['patience', 'Take-out: patience (s)', 35, 5, 120, 1, 'Customers'],
+  ['queueMax', 'Take-out: queue max (else turned away)', 6, 2, 8, 1, 'Customers'],
+  ['tables', 'Dine-in: tables in use (the café level sets it)', 8, 1, 8, 1, 'Customers'],
+  ['dineArrival', 'Dine-in: new customer every (s; busier café levels lower it)', 16, 1, 30, 0.5, 'Customers'],
+  ['dineWaitMax', 'Dine-in: waiting line max (else turned away)', 3, 0, 6, 1, 'Customers'],
+  ['dineSeatPatience', 'Dine-in: patience while waiting for a table (s)', 20, 5, 120, 1, 'Customers'],
+  ['dinePatience', 'Dine-in: patience once seated, order + food (s)', 45, 5, 120, 1, 'Customers'],
+  ['eatTime', 'Dine-in: eating (s)', 12, 1, 60, 1, 'Customers'],
+  ['repUnhappy', 'Take-out loss: left unhappy', 16, 0, 25, 0.5, 'Café reputation'],
+  ['repTurnAway', 'Take-out loss: turned away (queue full)', 8, 0, 25, 0.5, 'Café reputation'],
+  ['repHappy', 'Take-out gain: served', 2, 0, 5, 0.1, 'Café reputation'],
+  ['repUnhappyDine', 'Dine-in loss: left unhappy', 16, 0, 25, 0.5, 'Café reputation'],
+  ['repNoTable', 'Dine-in loss: turned away (no table, line full)', 8, 0, 25, 0.5, 'Café reputation'],
+  ['repHappyDine', 'Dine-in gain: served and finished eating', 3, 0, 5, 0.1, 'Café reputation'],
   ['repRecover', 'Recovery per s', 0.2, 0, 1, 0.01, 'Café reputation'],
   ['crowdSize', 'Crowd Rush size', 4, 1, 8, 1, 'Troublemakers'],
   ['crowdOrderMult', 'Crowd order slowness ×', 3, 1, 10, 0.5, 'Troublemakers'],
@@ -641,6 +759,10 @@ const PARAM_DEFS = [
   ['crowdAnnoy', 'Crowd in queue: others lose patience ×', 1.8, 1, 6, 0.1, 'Troublemakers'],
   ['foodChance', 'Crowd Rush member drops food on reaching the queue (chance)', 0.3, 0, 1, 0.05, 'Troublemakers'],
   ['foodLife', 'Dropped food lasts (s)', 15, 1, 60, 1, 'Troublemakers'],
+  ['hogSize', 'Table Hoggers size', 3, 1, 8, 1, 'Troublemakers'],
+  ['hogOrderMult', 'Table Hogger order slowness ×', 3, 1, 10, 0.5, 'Troublemakers'],
+  ['hogLinger', 'Table Hogger stays at the table after being served (s)', 25, 1, 90, 1, 'Troublemakers'],
+  ['hogPatience', 'Table Hogger patience (s)', 90, 10, 180, 5, 'Troublemakers'],
   ['lockSpeed', 'Locksmith speed', 1.8, 0.5, 5, 0.1, 'Troublemakers'],
   ['lockT1', 'Pick time: tier 1 lock, register till (s)', 4, 0.5, 20, 0.5, 'Troublemakers'],
   ['lockT2', 'Pick time: tier 2 lock, pantry stash (s)', 6, 0.5, 20, 0.5, 'Troublemakers'],
@@ -690,6 +812,7 @@ for (const d of PARAM_DEFS) DEFAULTS[d[0]] = d[2];
 // entry: where a troop comes in; spell: tap anywhere on the map to cast
 const CARDS = [
   { key: 'crowd', name: 'Crowd Rush', entry: 'door', cost: 'costCrowd', space: 'spaceCrowd', ico: 'R', col: '#e8c547' },
+  { key: 'hog', name: 'Table Hoggers', entry: 'dine', cost: 'costHog', space: 'spaceHog', ico: 'H', col: '#e89a47' },
   { key: 'lock', name: 'Locksmith', entry: 'window', cost: 'costLock', space: 'spaceLock', ico: 'L', col: '#c17bff' },
   { key: 'vamp', name: 'Vampire', entry: 'chimney', cost: 'costVamp', space: 'spaceVamp', ico: 'V', col: '#d0314f' },
   { key: 'polt', name: 'Poltergeist', entry: 'wall', cost: 'costPolt', space: 'spacePolt', ico: 'O', col: '#dfe6f0' },
@@ -710,16 +833,20 @@ class Sim {
     this.rng = mulberry32(cfg.seed >>> 0);
     this.tick = 0; this.phase = 'scout'; this.siegeTick = 0; this.siegeStart = -1; this.endReason = '';
     this.mischief = p.mischiefStart;
-    this.army = Object.assign({ crowd: 0, lock: 0, vamp: 0, polt: 0, shock: 0, dark: 0 }, cfg.army);
+    this.army = Object.assign({ crowd: 0, hog: 0, lock: 0, vamp: 0, polt: 0, shock: 0, dark: 0 }, cfg.army);
     this.rep = 100; this.minRep = 100;
     this.stars = { rep: false, vault: false, chaos: false };
     this.coins = 0; this.stolen = 0; this.served = 0; this.unhappy = 0; this.turned = 0; this.ejected = 0;
     this.stations = STATIONS.map((s, i) => ({ ...s, i, dis: null, repair: 0, fixer: null }));
-    this.staff = (cfg.prio || ['serve', 'fix', 'guard']).map((pr, i) => ({
+    this.staff = (cfg.prio || ['serve', 'fix', 'guard']).slice(0, STAFF_START.length).map((pr, i) => ({
       id: i, prio: pr, x: STAFF_START[i][0], y: STAFF_START[i][1], wx: null, wy: null, task: null, alert: null,
       energy: p.energyMax, latchedBy: null, stunUntil: -1, immuneUntil: -1, faintUntil: -1 }));
     this.customers = []; this.queue = []; this.pickups = PICKUPS.map(() => null);
-    this.tms = [];            // Locksmiths, Vampires, Poltergeists (Crowd Rush members live in customers, tm = true)
+    // dine-in: the tables this level uses, and the line of customers waiting for one
+    this.tables = TABLES.slice(0, Math.max(1, Math.min(TABLES.length, Math.round(p.tables)))).map(t =>
+      ({ ...t, cust: null, dirty: false, cleaner: null, clean: 0 }));
+    this.waitLine = [];
+    this.tms = [];            // Locksmiths, Vampires, Poltergeists (Crowd Rush and Table Hogger members live in customers, tm = true)
     this.pendingCrowd = []; this.dark = []; this.food = [];
     this.locks = LOCKS.map(l => ({ ...l, picked: false, picker: null }));
     this.mimic = p.mimic > 0 ? { ...MIMIC, armed: true, picker: null, grabUntil: -1 } : null;
@@ -729,7 +856,7 @@ class Sim {
     this.lit = new Uint8Array(W * H); this.litKey = null; this.lanternOn = LANTERNS.map(() => false);
     this.bell = { fired: false, at: -1 };
     this.vaultRobbed = false;
-    this.nextArrival = Math.round(1 / DT);
+    this.nextArrival = Math.round(1 / DT); this.nextDine = Math.round(2.5 / DT);
     this.taker = null;
     this.inputs = []; this.inputIdx = 0;
     this.log = []; this.fx = []; this.nextId = 1; this.quiet = 0;
@@ -760,8 +887,15 @@ class Sim {
       const gap = Math.max(0.5, p.arrival + (this.rng() * 2 - 1));
       this.nextArrival = this.tick + this.ticks(gap);
     }
-    while (this.pendingCrowd.length && this.pendingCrowd[0] <= this.tick) {
-      this.pendingCrowd.shift(); this.spawnCustomer('crowd');
+    if (this.tick >= this.nextDine) {
+      this.spawnCustomer('dine');
+      const gap = Math.max(1, p.dineArrival + (this.rng() * 3 - 1.5));
+      this.nextDine = this.tick + this.ticks(gap);
+    }
+    if (this.pendingCrowd.some(e => e.t <= this.tick)) {         // Crowd Rush / Table Hogger members walking in
+      const due = this.pendingCrowd.filter(e => e.t <= this.tick);
+      this.pendingCrowd = this.pendingCrowd.filter(e => e.t > this.tick);
+      for (const e of due) this.spawnCustomer(e.kind);
     }
     this.dark = this.dark.filter(d => this.tick < d.until);
     this.food = this.food.filter(f => this.tick < f.until);
@@ -772,6 +906,7 @@ class Sim {
     this.bellStep();
     for (const s of this.staff) this.staffStep(s);
     this.crowdInQueue = this.queue.some(c => c.tm);
+    this.seatStep();
     for (const c of this.customers.slice()) this.custStep(c);
 
     // reputation
@@ -858,7 +993,7 @@ class Sim {
     let bad = 0;
     for (const c of this.customers) {
       if (c.state === 'leaving') continue;
-      c.angry = !c.tm && c.patience < c.patience0 * this.p.moodBad;
+      c.angry = !c.tm && c.state !== 'eat' && c.patience < c.patience0 * this.p.moodBad;
       if (c.angry) bad++;
       this.custDetach(c); c.state = 'leaving'; c.heldBy = null; c.stunUntil = -1;
     }
@@ -875,10 +1010,10 @@ class Sim {
     }
   }
   angryExit(c) {
-    const p = this.p;
-    this.rep -= p.repUnhappy; this.unhappy++; this.badExits++;
-    this.fx.push({ kind: 'rep', txt: '☹ −' + p.repUnhappy, x: c.x, y: c.y, until: this.tick + this.ticks(1.5) });
-    this.say('Customer walked out in a bad mood (−' + p.repUnhappy + ')');
+    const loss = this.lossOf(c);
+    this.rep -= loss; this.unhappy++; this.badExits++;
+    this.fx.push({ kind: 'rep', amt: loss, txt: '☹ −' + loss, x: c.x, y: c.y, until: this.tick + this.ticks(1.5) });
+    this.say('Customer walked out in a bad mood (−' + loss + ')');
     if (this.rep <= 0 && !this.stars.rep) { this.stars.rep = true; this.say('CAFÉ REPUTATION KNOCKED OUT!'); }
     if (this.stars.rep) this.rep = 0;
     this.minRep = Math.min(this.minRep, this.rep);
@@ -897,8 +1032,11 @@ class Sim {
     if (!CARDS.reduce((a, c) => a + this.army[c.key], 0))
       this.say('Army spent: the raid ends when the café settles (or tap End raid)');
     if (card.key === 'crowd') {
-      for (let i = 0; i < p.crowdSize; i++) this.pendingCrowd.push(this.tick + this.ticks(0.3 * i));
-      this.say('Crowd Rush at the door');
+      for (let i = 0; i < p.crowdSize; i++) this.pendingCrowd.push({ t: this.tick + this.ticks(0.3 * i), kind: 'crowd' });
+      this.say('Crowd Rush at the take-out door');
+    } else if (card.key === 'hog') {
+      for (let i = 0; i < p.hogSize; i++) this.pendingCrowd.push({ t: this.tick + this.ticks(0.3 * i), kind: 'hog' });
+      this.say('Table Hoggers at the dining door');
     } else if (card.key === 'lock') this.spawnLock();
     else if (card.key === 'vamp') this.spawnVamp();
     else if (card.key === 'polt') this.spawnPolt(inp.x, inp.y);
@@ -925,31 +1063,66 @@ class Sim {
   }
 
   // ---------------- customers ----------------
+  // Two kinds. Take-out ('normal', and Crowd Rush 'crowd'): take-out door -> queue -> order at the register ->
+  // pickup spot -> out. Dine-in ('dine', and Table Hoggers 'hog'): dining door -> a free clean table (else the
+  // waiting line) -> a staff member takes the order at the table -> food brought to the table -> eat -> out,
+  // and the table is dirty until a staff member cleans it.
   spawnCustomer(kind) {
-    const p = this.p, e = ENTRIES.door;
+    const p = this.p;
     const item = ITEMS[Math.floor(this.rng() * 3)];
     const jitter = this.rng() * 10 - 5;
-    const crowd = kind === 'crowd';
-    const limit = crowd ? QUEUE_SLOTS.length : p.queueMax;
-    if (this.queue.length >= limit) {
-      if (!crowd) {
+    const tm = kind === 'crowd' || kind === 'hog', dine = kind === 'dine' || kind === 'hog';
+    const e = dine ? ENTRIES.dine : ENTRIES.door;
+    const c = { id: 0, kind, tm, dine, x: e.inX, y: e.inY, wx: null, wy: null, state: dine ? 'wait' : 'queue', item, jitter,
+      patience: 0, patience0: 0, server: null, pickup: -1, table: null, seated: false, eatUntil: -1,
+      stunUntil: -1, heldBy: null, chaser: null, gone: false };
+    if (dine) {
+      const t = this.waitLine.length ? null : this.freeTable();
+      if (!t && this.waitLine.length >= (tm ? WAIT_SPOTS.length : p.dineWaitMax)) {
+        if (!tm) {
+          this.rep -= p.repNoTable; this.turned++;
+          this.fx.push({ kind: 'turn', dine: true, amt: p.repNoTable, x: e.inX, y: e.inY, until: this.tick + this.ticks(0.8) });
+          this.say('No table and the line is full: customer turned away (−' + p.repNoTable + ')');
+        }
+        return;
+      }
+      c.id = this.nextId++;
+      c.patience = c.patience0 = this.ticks(tm ? p.hogPatience : p.dineSeatPatience);
+      this.customers.push(c);
+      if (t) this.seat(c, t); else this.waitLine.push(c);
+      return;
+    }
+    if (this.queue.length >= (tm ? QUEUE_SLOTS.length : p.queueMax)) {
+      if (!tm) {
         this.rep -= p.repTurnAway; this.turned++;
-        this.fx.push({ kind: 'turn', x: e.inX, y: e.inY, until: this.tick + this.ticks(0.8) });
+        this.fx.push({ kind: 'turn', amt: p.repTurnAway, x: e.inX, y: e.inY, until: this.tick + this.ticks(0.8) });
         this.say('Queue full: customer turned away (−' + p.repTurnAway + ')');
       }
       return;
     }
-    const c = { id: this.nextId++, kind, tm: crowd, x: e.inX, y: e.inY, wx: null, wy: null,
-      state: 'queue', item, patience: this.ticks(crowd ? p.crowdPatience : p.patience + jitter),
-      patience0: 0, server: null, pickup: -1, stunUntil: -1, heldBy: null, chaser: null, gone: false };
-    c.patience0 = c.patience;
+    c.id = this.nextId++;
+    c.patience = c.patience0 = this.ticks(tm ? p.crowdPatience : p.patience + jitter);
     this.customers.push(c); this.queue.push(c);
   }
+  freeTable() { return this.tables.find(t => !t.cust && !t.dirty) || null; }
+  // A real diner's patience starts again when it gets a table (order + food must come before it runs out).
+  seat(c, t) {
+    c.table = t; t.cust = c; c.state = 'sit'; c.seated = false;
+    if (!c.tm) c.patience = c.patience0 = this.ticks(this.p.dinePatience + c.jitter);
+  }
+  seatStep() {
+    while (this.waitLine.length) {
+      const t = this.freeTable();
+      if (!t) break;
+      this.seat(this.waitLine.shift(), t);
+    }
+  }
+  lossOf(c) { return c.dine ? this.p.repUnhappyDine : this.p.repUnhappy; }
   custStep(c) {
     const p = this.p;
     if (c.gone) return;
-    if (c.state !== 'leaving') {
-      c.patience -= (!c.tm && this.crowdInQueue) ? p.crowdAnnoy : 1;
+    if (c.state !== 'leaving' && c.state !== 'eat') {
+      c.patience -= (c.kind === 'normal' && this.crowdInQueue) ? p.crowdAnnoy : 1;
       if (c.patience <= 0) { this.custLeave(c, !c.tm); return; }
     }
     if (c.heldBy || this.tick < c.stunUntil) return;
@@ -966,23 +1139,42 @@ class Sim {
     } else if (c.state === 'pickup') {
       const s = PICKUPS[c.pickup];
       moveTo(c, s[0], s[1], p.custSpeed);
+    } else if (c.state === 'wait') {
+      const s = WAIT_SPOTS[Math.min(this.waitLine.indexOf(c), WAIT_SPOTS.length - 1)];
+      moveTo(c, s[0], s[1], p.custSpeed);
+    } else if (c.state === 'sit' || c.state === 'food' || c.state === 'eat') {
+      if (!c.seated && moveTo(c, c.table.sx, c.table.sy, p.custSpeed)) c.seated = true;
+      if (c.state === 'eat' && this.tick >= c.eatUntil) this.dineDone(c);
     } else if (c.state === 'leaving') {
-      if (moveTo(c, ENTRIES.door.inX, ENTRIES.door.inY, p.custSpeed)) { if (c.angry) this.angryExit(c); this.removeCust(c); }
+      const e = c.dine ? ENTRIES.dine : ENTRIES.door;
+      if (moveTo(c, e.inX, e.inY, p.custSpeed)) { if (c.angry) this.angryExit(c); this.removeCust(c); }
     }
+  }
+  // Finished eating (a Table Hogger: finished lingering): leaves, and the table is dirty.
+  dineDone(c) {
+    const t = c.table;
+    t.dirty = true; t.clean = 0;
+    this.custDetach(c); c.state = 'leaving';
+    if (!c.tm) { this.rep = Math.min(100, this.rep + this.p.repHappyDine); this.coins += 8; this.served++; }
+    this.say((c.tm ? 'Table Hogger' : 'Diner') + ' left: table ' + (t.i + 1) + ' is dirty');
   }
   custDetach(c) {
     const qi = this.queue.indexOf(c);
     if (qi >= 0) this.queue.splice(qi, 1);
+    const wi = this.waitLine.indexOf(c);
+    if (wi >= 0) this.waitLine.splice(wi, 1);
     if (c.pickup >= 0) { this.pickups[c.pickup] = null; c.pickup = -1; }
+    if (c.table) { if (c.table.cust === c) c.table.cust = null; c.table = null; }
     c.server = null;
   }
   custLeave(c, angry) {
+    const loss = this.lossOf(c);
     this.custDetach(c);
     c.state = 'leaving';
     if (angry) {
-      this.rep -= this.p.repUnhappy; this.unhappy++;
-      this.fx.push({ kind: 'angry', x: c.x, y: c.y, until: this.tick + this.ticks(1) });
-      this.say('Customer left unhappy (−' + this.p.repUnhappy + ')');
+      this.rep -= loss; this.unhappy++;
+      this.fx.push({ kind: 'angry', amt: loss, x: c.x, y: c.y, until: this.tick + this.ticks(1) });
+      this.say((c.dine ? 'Diner' : 'Customer') + ' left unhappy (−' + loss + ')');
     }
   }
   removeCust(c) { this.custDetach(c); c.gone = true; this.customers.splice(this.customers.indexOf(c), 1); }
@@ -1245,20 +1437,25 @@ class Sim {
       }
       return best ? { kind: 'fix', st: best } : null;
     }
-    // serve: pending orders first, then take a new order
+    // serve: pending orders first (take-out and tables), then take a new order at the register
     if (s.prio === 'guard' && !p.guardServe && this.queue.length < p.guardHelpQ) return null;
     for (const c of this.customers) {
-      if (c.state === 'pickup' && !c.server && !this.stations[c.item].dis)
+      if ((c.state === 'pickup' || c.state === 'food') && !c.server && !this.stations[c.item].dis)
         return { kind: 'serve', step: 'prep', cust: c, prog: 0 };
     }
     if (this.queue.length && !this.taker && !this.stations[0].dis && this.pickups.indexOf(null) >= 0)
       return { kind: 'serve', step: 'take', cust: null, prog: 0 };
+    // then the dining room: take a seated customer's order, and last of all clean a dirty table
+    for (const c of this.customers)
+      if (c.state === 'sit' && c.seated && !c.server) return { kind: 'serve', step: 'ttake', cust: c, prog: 0 };
+    for (const t of this.tables) if (t.dirty && !t.cleaner) return { kind: 'serve', step: 'clean', table: t };
     return null;
   }
   claim(s, t) {
     if (t.kind === 'guard') t.target.chaser = s;
     else if (t.kind === 'fix') t.st.fixer = s;
     else if (t.step === 'take') this.taker = s;
+    else if (t.step === 'clean') t.table.cleaner = s;
     else t.cust.server = s;
   }
   abandon(s) {
@@ -1272,6 +1469,8 @@ class Sim {
       if (t.st.fixer === s) t.st.fixer = null;
     } else if (t.step === 'take') {
       if (this.taker === s) this.taker = null;
+    } else if (t.step === 'clean') {
+      if (t.table.cleaner === s) t.table.cleaner = null;
     } else if (t.cust && t.cust.server === s) t.cust.server = null;
     s.task = null;
   }
@@ -1325,8 +1524,26 @@ class Sim {
       t.step = 'prep'; t.prog = 0;
       return;
     }
+    if (t.step === 'clean') {
+      const tb = t.table;
+      if (!tb.dirty) { this.abandon(s); return; }
+      if (moveTo(s, tb.wx, tb.wy, spd)) {
+        tb.clean += DT / this.role(s, 'serve');
+        if (tb.clean >= p.cleanTime) { tb.dirty = false; tb.clean = 0; this.abandon(s); this.say('Table ' + (tb.i + 1) + ' cleaned'); }
+      }
+      return;
+    }
     const c = t.cust;
-    if (c.gone || c.state !== 'pickup') { this.abandon(s); return; }
+    if (t.step === 'ttake') {                    // take the order at the table, then go and make it
+      if (c.gone || c.state !== 'sit') { this.abandon(s); return; }
+      if (!moveTo(s, c.table.wx, c.table.wy, spd) || c.heldBy) return;
+      t.prog += DT;
+      const hogMult = s.prio === 'serve' && p.serveCrowdMult > 0 ? p.serveCrowdMult : p.hogOrderMult;
+      if (t.prog < p.tableOrderTime * (c.tm ? hogMult : 1) * this.role(s, 'serve')) return;
+      c.state = 'food'; t.step = 'prep'; t.prog = 0;
+      return;
+    }
+    if (c.gone || (c.state !== 'pickup' && c.state !== 'food')) { this.abandon(s); return; }
     if (t.step === 'prep') {
       const st = this.stations[c.item];
       if (st.dis) { this.abandon(s); return; }
@@ -1336,10 +1553,12 @@ class Sim {
       return;
     }
     if (t.step === 'deliver') {
-      if (!moveTo(s, ORDER_SPOT[0], ORDER_SPOT[1], spd)) return;
+      const tb = c.table;                        // dine-in: carried to the table; take-out: handed over at the counter
+      if (!moveTo(s, tb ? tb.wx : ORDER_SPOT[0], tb ? tb.wy : ORDER_SPOT[1], spd)) return;
       t.prog += DT;
       if (t.prog < 0.5) return;
       this.abandon(s);
+      if (tb) { c.state = 'eat'; c.eatUntil = this.tick + this.ticks(c.tm ? p.hogLinger : p.eatTime); return; }
       this.custDetach(c);
       c.state = 'leaving';
       if (!c.tm) { this.rep = Math.min(100, this.rep + p.repHappy); this.coins += 5; this.served++; }
@@ -1357,6 +1576,8 @@ class Sim {
     if (this.mimic) s += '|k' + this.mimic.armed;
     if (this.hound) s += '|h' + r(this.hound.x) + ',' + r(this.hound.y) + this.hound.state;
     for (const c of this.customers) s += '|c' + c.id + ',' + r(c.x) + ',' + r(c.y) + c.state + c.patience;
+    for (const t of this.tables) s += '|b' + (t.cust ? t.cust.id : '-') + (t.dirty ? 'd' : 'c') + r(t.clean);
+    s += '|w' + this.waitLine.length;
     for (const t of this.tms) s += '|m' + t.id + t.kind + r(t.x) + ',' + r(t.y) + t.state + (t.carry || 0);
     s += '|o' + r(this.overwhelm) + ',' + r(this.owPeak) + '|f' + this.food.length + '|d' + this.dark.length;
     return fnv(s);
@@ -1372,14 +1593,15 @@ class Sim {
 
 // Headless runner (test hook). inputs: [{tick, type:'siege'|'deploy'|'end', card, x, y}] (spells and Poltergeists use x, y)
 function simulate(opts) {
-  const o = Object.assign({ seed: 1, army: { crowd: 1, lock: 1, vamp: 1, polt: 1, shock: 1, dark: 1 },
+  const o = Object.assign({ seed: 1, army: { crowd: 1, hog: 1, lock: 1, vamp: 1, polt: 1, shock: 1, dark: 1 },
     prio: ['serve', 'fix', 'guard'], inputs: [], params: {}, maxTicks: 30 * 60 * 10 }, opts);
   const sim = new Sim({ seed: o.seed, params: Object.assign({}, DEFAULTS, o.params), army: o.army, prio: o.prio });
   sim.inputs = o.inputs.map(i => Object.assign({}, i)).sort((a, b) => a.tick - b.tick);
   const trace = [];
   while (sim.phase !== 'over' && sim.tick < o.maxTicks) {
     sim.step();
-    if (o.trace && sim.tick % o.trace === 0) trace.push({ t: sim.tick, rep: +sim.rep.toFixed(1), q: sim.queue.length,
+    if (o.trace && sim.tick % o.trace === 0) trace.push({ t: sim.tick, rep: +sim.rep.toFixed(1), q: sim.queue.length, w: sim.waitLine.length,
+      dirty: sim.tables.filter(t => t.dirty).length, seated: sim.tables.filter(t => t.cust).length,
       cust: sim.customers.length, mis: +sim.mischief.toFixed(1) });
   }
   const res = sim.summary();
@@ -1388,461 +1610,767 @@ function simulate(opts) {
   return res;
 }
 
+// Final hashes of 24 fixed raids (3 seeds × 3 / 4 / 5 / 6 staff × without / with defenses, every card played).
+// tools/staff_sweep/parity.js prints this list in node; raid.html?shot=parity shows it in the browser: they must match.
+function parityHashes(extra) {
+  const oven = STATIONS.find(s => s.key === 'oven');
+  const ins = [{ tick: 900, type: 'siege' }, { tick: 900, type: 'deploy', card: 'lock' }, { tick: 950, type: 'deploy', card: 'vamp' },
+    { tick: 1100, type: 'deploy', card: 'crowd' }, { tick: 1200, type: 'deploy', card: 'hog' }, { tick: 1300, type: 'deploy', card: 'polt', x: oven.x, y: 0 },
+    { tick: 1500, type: 'deploy', card: 'shock', x: ORDER_SPOT[0], y: ORDER_SPOT[1] }, { tick: 1700, type: 'deploy', card: 'dark', x: 4, y: 4 }];
+  const prios = [['serve', 'fix', 'guard'], ['serve', 'serve', 'fix', 'guard'], ['serve', 'serve', 'serve', 'fix', 'guard'], ['serve', 'serve', 'serve', 'fix', 'guard', 'guard']];
+  const out = [];
+  for (let seed = 1; seed <= 3; seed++) for (const prio of prios) for (const d of [{ hound: 0, mimic: 0, lantern: 0, bell: 0 }, {}])
+    out.push(simulate({ seed, prio, inputs: ins, params: Object.assign({}, DEFAULTS, extra, d) }).hash);
+  return out;
+}
+
 // ============================================================================================
 // UI
 // ============================================================================================
+// Tester shell (v11, 2026-11-16; adapted to service sim v2). Everything below is presentation and input: it never changes the Sim,
+// PARAM_DEFS or the layout above. Guided raids, tips and card demos are DATA keyed by entity names
+// (card, lock, station and entry keys), never tile coordinates, so they survive a layout change.
 const $ = id => document.getElementById(id);
+const QS = new URLSearchParams(location.search);
+const DEBUG = QS.get('debug') === '1';      // old Setup, Debug sliders, dev buttons, every raid unlocked
+const SHOT = QS.get('shot');                // screenshot / self-test states (see the end of the file)
 const store = {
   get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } },
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* private mode */ } },
 };
-const P = Object.assign({}, DEFAULTS, store.get('hexbrew-raid-params-v8', {}));
+const P = Object.assign({}, DEFAULTS, store.get('hexbrew-raid-params-v12', {}));
 for (const k in P) if (!(k in DEFAULTS)) delete P[k];
-const setup = Object.assign({ level: 0, seed: 12345, army: { crowd: 1, lock: 1, vamp: 1, polt: 1, shock: 1, dark: 1 }, prio: ['serve', 'serve', 'serve'] },
-  store.get('hexbrew-raid-setup-v8', {}));
-setup.army = Object.assign({ crowd: 0, lock: 0, vamp: 0, polt: 0, shock: 0, dark: 0 }, setup.army);
+const setup = Object.assign({ level: 0, seed: 12345, army: { crowd: 1, hog: 1, lock: 1, vamp: 1, polt: 1, shock: 1, dark: 1 }, prio: ['serve', 'serve', 'serve'] },
+  store.get('hexbrew-raid-setup-v12', {}));
+setup.army = Object.assign({ crowd: 0, hog: 0, lock: 0, vamp: 0, polt: 0, shock: 0, dark: 0 }, setup.army);
 const entryLabel = c => c.entry === 'wall' ? 'Any outer wall' : c.entry ? ENTRIES[c.entry].label : '';
-
-const game = { sim: null, speed: 1, paused: false, sel: null, replay: null, lastRun: null,
-  resultShown: false, T: 32, dpr: 1, bannerTimer: 0, level: 0 };
 
 // Written by hand when a build is made: date + short hash of the commit the build's code is from.
 const BUILD = '2026-10-21 · 322b6ab';
 
-const cv = $('cv'), ctx = cv.getContext('2d');
-
-// Difficulty ladder: the same café with defenses added step by step (sets defenses + staff rules).
+// Café levels: the same fixed grid, filled with more at each level. A level sets the staff (count and priorities),
+// the tables in use, how busy the café is (arrival rates sized so a calm café of that staff keeps its reputation)
+// and the defenses.
 const NO_DEF = { hound: 0, mimic: 0, lantern: 0, bell: 0 };
+const BUSY4 = { arrival: 5.5, dineArrival: 14 }, BUSY5 = { arrival: 4.5, dineArrival: 11.5 };   // 4 staff; 5–6 staff
 const LEVELS = [
-  { name: 'Level 1: no defenses, all staff Serve first', p: NO_DEF, prio: ['serve', 'serve', 'serve'] },
-  { name: 'Level 2: + a Fix-first staff', p: NO_DEF, prio: ['serve', 'fix', 'serve'] },
-  { name: 'Level 3: + a Guard-first staff', p: NO_DEF, prio: ['serve', 'fix', 'guard'] },
-  { name: 'Level 4: + Warden Hound', p: { mimic: 0, lantern: 0, bell: 0 }, prio: ['serve', 'fix', 'guard'] },
-  { name: 'Level 5: + Mimic', p: { lantern: 0, bell: 0 }, prio: ['serve', 'fix', 'guard'] },
-  { name: 'Level 6: + Lantern', p: { bell: 0 }, prio: ['serve', 'fix', 'guard'] },
-  { name: 'Level 7: + hidden Alarm Bell (full café)', p: {}, prio: ['serve', 'fix', 'guard'] },
+  { name: 'Level 1: no defenses, 3 staff (all Serve first), 4 tables', p: { ...NO_DEF, tables: 4 }, prio: ['serve', 'serve', 'serve'] },
+  { name: 'Level 2: + a Fix-first staff', p: { ...NO_DEF, tables: 4 }, prio: ['serve', 'fix', 'serve'] },
+  { name: 'Level 3: 4 staff, + a Guard-first staff, 5 tables', p: { ...NO_DEF, ...BUSY4, tables: 5 }, prio: ['serve', 'serve', 'fix', 'guard'] },
+  { name: 'Level 4: + Warden Hound, 6 tables', p: { mimic: 0, lantern: 0, bell: 0, ...BUSY4, tables: 6 }, prio: ['serve', 'serve', 'fix', 'guard'] },
+  { name: 'Level 5: 5 staff, + Mimic', p: { lantern: 0, bell: 0, ...BUSY5, tables: 6 }, prio: ['serve', 'serve', 'serve', 'fix', 'guard'] },
+  { name: 'Level 6: + Lantern, 7 tables', p: { bell: 0, ...BUSY5, tables: 7 }, prio: ['serve', 'serve', 'serve', 'fix', 'guard'] },
+  { name: 'Level 7: 6 staff, + hidden Alarm Bell, 8 tables (full café)', p: { ...BUSY5, tables: 8 }, prio: ['serve', 'serve', 'serve', 'fix', 'guard', 'guard'] },
 ];
-// Measured with roster v10 (tools/staff_sweep/ladder.js, default army, 24 seeds, strong expert 300 + 300): newbie bot ≥1★ / 3★, expert bot 3★
-const LEVEL_NOTE = ['Bot newbies: 97% get 1★, 25% get 3★; experts 100% 3★', 'Bot newbies: 98% get 1★, 18% get 3★; experts 100% 3★',
-  'Bot newbies: 88% get 1★, 1% get 3★; experts 96% 3★', 'Bot newbies: 85% get 1★, 0% 3★; experts 79% 3★',
-  'Bot newbies: 87% get 1★, 0% 3★; experts 92% 3★', 'Bot newbies: 82% get 1★, 0% 3★; experts 33% 3★',
-  'Bot newbies: 84% get 1★, 0% 3★; experts 17% 3★'];
-function levelParams() { return Object.assign({}, P, (LEVELS[setup.level] || LEVELS[0]).p); }
-
 function armySpace(army) { return CARDS.reduce((a, c) => a + army[c.key] * P[c.space], 0); }
 
-// ---------- setup screen ----------
-function buildSetup() {
-  const rows = $('armyRows'); rows.innerHTML = '';
-  for (const c of CARDS) {
-    const r = document.createElement('div'); r.className = 'row';
-    r.innerHTML = `<span class="ico" style="background:${c.col}">${c.ico}</span>
-      <span class="grow">${c.name} <span class="note">space ${P[c.space]} · cost ${P[c.cost]}${c.entry ? ' · ' + entryLabel(c) : ' · spell'}</span></span>
-      <span class="stepper"><button data-k="${c.key}" data-d="-1">−</button><span id="ac_${c.key}"></span><button data-k="${c.key}" data-d="1">+</button></span>`;
-    rows.appendChild(r);
-  }
-  rows.onclick = e => {
-    const b = e.target.closest('button'); if (!b) return;
-    const k = b.dataset.k, d = +b.dataset.d;
-    const next = Object.assign({}, setup.army); next[k] = Math.max(0, next[k] + d);
-    if (d > 0 && armySpace(next) > P.armyCap) { flash('Army is full'); return; }
-    setup.army = next; refreshSetup();
-  };
-  const ls = $('levelSel'); ls.innerHTML = '';
-  LEVELS.forEach((L, i) => { const o = document.createElement('option'); o.value = i; o.textContent = L.name; ls.appendChild(o); });
-  ls.onchange = () => { setup.level = +ls.value; setup.prio = LEVELS[setup.level].prio.slice(); refreshSetup(); };
-  const sr = $('staffRows'); sr.innerHTML = '';
-  for (let i = 0; i < 3; i++) {
-    const r = document.createElement('div'); r.className = 'row';
-    r.innerHTML = `<span class="grow">Staff ${i + 1}</span><select data-i="${i}">
-      <option value="serve">Serve first</option><option value="fix">Fix first</option><option value="guard">Guard first</option></select>`;
-    sr.appendChild(r);
-  }
-  sr.onchange = e => { const s = e.target; setup.prio[+s.dataset.i] = s.value; store.set('hexbrew-raid-setup-v8', setup); };
-  refreshSetup();
-}
-function refreshSetup() {
-  // clamp the army if capacity or space changed in the debug panel
-  while (armySpace(setup.army) > P.armyCap) {
-    const k = CARDS.map(c => c.key).reverse().find(k => setup.army[k] > 0);
-    if (!k) break; setup.army[k]--;
-  }
-  for (const c of CARDS) $('ac_' + c.key).textContent = setup.army[c.key];
-  $('armySpace').textContent = `(${armySpace(setup.army)} / ${P.armyCap} space)`;
-  document.querySelectorAll('#staffRows select').forEach((s, i) => { s.value = setup.prio[i]; });
-  $('seedIn').value = setup.seed;
-  $('levelSel').value = setup.level; $('levelNote').textContent = LEVEL_NOTE[setup.level] || '';
-  store.set('hexbrew-raid-setup-v8', setup);
-}
-$('seedRand').onclick = () => { setup.seed = Math.floor(Math.random() * 1e6); refreshSetup(); };
-$('seedIn').onchange = () => { setup.seed = Math.max(0, Math.floor(+$('seedIn').value || 0)); refreshSetup(); };
-$('btnStart').onclick = () => { setup.seed = Math.max(0, Math.floor(+$('seedIn').value || 0)); refreshSetup(); startRaid(); };
+// ============================================================================================
+// Shell data: emoji, goals, card texts, raids (guided 1–3, then the v10 café levels), card demos
+// ============================================================================================
+const EMO = {
+  card: { crowd: '👥', hog: '🪑', lock: '🥷', vamp: '🧛', polt: '👻', shock: '⚡', dark: '🌑' },
+  staff: { serve: '🧑‍🍳', fix: '🧑‍🔧', guard: '💂' },
+  station: { counter: '🛎️', coffee: '☕', oven: '🥖', pastry: '🧁' },
+  lock: { till: '💵', stash: '📦', vault: '💎', mimic: '📦' },
+  entry: { door: '🚪', dine: '🚪', window: '🪟', chimney: '♨️' }, entryTag: { door: '🥡', dine: '🍽️' },
+  dirty: '🍽️', plant: '🪴', wantsOrder: '✋',
+  hound: '🐕', mimicBit: '👹', lantern: '🏮', bell: '🔔', food: '🍖', loot: '💰',
+  cust: ['🙂', '😐', '😠'], crowd: '😎', angry: '😡', stun: '💫', faint: '💤',
+};
+const GOALS = {
+  vault: { e: '💎', ok: 'Vault robbed', no: 'Vault not robbed', star: 'Vault robbed!' },
+  chaos: { e: '❗', ok: 'Staff overwhelmed', no: 'Staff not overwhelmed', star: 'Staff overwhelmed!' },
+  rep: { e: '😡', ok: 'Reputation ruined', no: 'Reputation not ruined', star: 'Reputation ruined!' },
+};
+const ALL_GOALS = ['vault', 'chaos', 'rep'];
+const CARD_INFO = {
+  lock: 'Sneaks in by the 🪟 window, picks every lock it finds, then runs back out. The loot only counts if it escapes.',
+  polt: 'Drifts in through any outer wall and haunts the nearest station. A haunted station serves nothing until staff fix it.',
+  crowd: 'Fake customers pour in by the 🥡 take-out door and clog the queue. Real customers lose patience and walk out angry.',
+  hog: 'Fake diners walk in by the 🍽️ dining door, take the tables, order slowly and sit for ages. Real diners find no table and leave angry. They leave the tables dirty, too.',
+  vamp: 'Flies down the ♨️ chimney, latches onto a staff member and drains them until they faint.',
+  shock: 'A spell: tap anywhere on the map. Staff inside the circle are stunned and drop what they were doing.',
+  dark: 'A spell: tap anywhere on the map. Staff in the dark are slow and nearly blind, and lanterns go out, so a 🧛 can get in.',
+};
 
-function showSetup() { buildSetup(); $('setup').classList.add('show'); $('result').classList.remove('show'); }
+// A raid: café (LEVELS index), army, seed, goals shown, and for guided raids:
+//   steps: done in order; each FREEZES the sim, shows `say`, points at `point`, and waits for `until`.
+//          when = what must be true before the step starts. card = select this card for the player.
+//   tips:  one-off lines that don't freeze; each fires the first time its `when` is true.
+// Conditions: 'tap' | {phase} | {sel: card} | {sent: card, n} | {mis: n} | {ev: event kind, key}
+// Targets:    {card} {entry} {lock} {station} {table: n} {wallNear: station or lock key} {unit: troublemaker kind}
+//             {role: staff priority} {hud} {btn}
+const RAIDS = [
+  { id: 'g1', num: 1, guided: true, title: 'The heist', sub: '🥷 Rob the vault', cafe: 0, seed: 2, army: { lock: 1 },
+    goals: ['vault'], scout: false, newCard: 'lock',
+    steps: [
+      { say: 'Tonight you rob this café. The 💎 vault is your target.', point: { lock: 'vault' }, until: 'tap' },
+      { say: 'Tap your 🥷 Locksmith card.', point: { card: 'lock' }, until: { sel: 'lock' } },
+      { say: 'It climbs in by the window. Tap the glowing 🪟.', point: { entry: 'window' }, until: { sent: 'lock' } },
+    ],
+    tips: [
+      { when: { sent: 'lock' }, say: 'You can\'t steer it. Drag to move the map, pinch to zoom.', secs: 6 },
+      { when: { ev: 'picked', key: 'till' }, say: 'It picks every lock on its way. The 💵 till is open, and the register is jammed.', point: { unit: 'lock' } },
+      { when: { ev: 'picked', key: 'vault' }, say: 'Vault open! It only counts if the Locksmith gets back out the 🪟 window.', point: { unit: 'lock' }, secs: 7 },
+    ] },
+  { id: 'g2', num: 2, guided: true, title: 'Haunted kitchen', sub: '👻 Overwhelm the staff', cafe: 0, seed: 2, army: { polt: 2, lock: 1 },
+    goals: ['vault', 'chaos'], scout: false, newCard: 'polt',
+    steps: [
+      { say: 'New goal: ❗ overwhelm the staff. Break things faster than they can fix them.', point: { hud: 'chaos' }, until: 'tap' },
+      { say: 'Tap your 👻 Poltergeist card.', point: { card: 'polt' }, until: { sel: 'polt' } },
+      { say: 'It drifts in through any outer wall. Tap the wall by the 🥖 oven.', point: { wallNear: 'oven' }, until: { sent: 'polt', n: 1 } },
+      { say: 'Send the second 👻 in by the ☕ coffee machine.', card: 'polt', point: { wallNear: 'coffee' }, until: { sent: 'polt', n: 2 } },
+      { when: { mis: 4 }, say: 'The staff are busy. Now tap the 🥷 Locksmith.', point: { card: 'lock' }, until: { sel: 'lock' } },
+      { say: 'Tap the 🪟 window.', point: { entry: 'window' }, until: { sent: 'lock' } },
+    ],
+    tips: [
+      { when: { sent: 'polt', n: 2 }, say: 'Every card costs ✨ Mischief. It refills by itself: wait for 4.', point: { hud: 'mis' }, secs: 6 },
+      { when: { ev: 'haunted' }, say: 'Haunted! A red ❗ on the map means nobody is fixing it. The ❗ bar fills while one shows.', point: { hud: 'chaos' }, secs: 7 },
+    ] },
+  { id: 'g3', num: 3, guided: true, title: 'Rush hour', sub: '👥 Ruin its reputation', cafe: 0, seed: 8, army: { crowd: 2, lock: 1, polt: 2 },
+    goals: ['vault', 'chaos', 'rep'], scout: true, newCard: 'crowd',
+    steps: [
+      { say: 'Scouting is free: drag to look around. Then tap Start siege.', point: { btn: 'siege' }, until: { phase: 'siege' } },
+      { say: 'New goal: 😡 ruin its reputation. Every customer who walks out angry costs it.', point: { hud: 'rep' }, until: 'tap' },
+      { say: 'Tap 👥 Crowd Rush.', point: { card: 'crowd' }, until: { sel: 'crowd' } },
+      { say: 'They walk in by the 🥡 take-out door. Tap it.', point: { entry: 'door' }, until: { sent: 'crowd', n: 1 } },
+      { say: 'Send the second group too.', card: 'crowd', point: { entry: 'door' }, until: { sent: 'crowd', n: 2 } },
+      { say: 'They clog the queue. Now tap the 🥷 Locksmith.', point: { card: 'lock' }, until: { sel: 'lock' } },
+      { say: 'Tap the 🪟 window.', point: { entry: 'window' }, until: { sent: 'lock' } },
+      { when: { mis: 4 }, say: 'Now break the kitchen: send a 👻 in by the 🥖 oven.', card: 'polt', point: { wallNear: 'oven' }, until: { sent: 'polt', n: 1 } },
+      { when: { mis: 4 }, say: 'And the last 👻.', card: 'polt', point: { wallNear: 'oven' }, until: { sent: 'polt', n: 2 } },
+    ],
+    tips: [
+      { when: { ev: 'repLoss' }, say: 'A customer gave up 😡. The reputation bar drops each time.', point: { hud: 'rep' }, secs: 6 },
+      { when: { sent: 'polt', n: 2 }, say: 'That was the last guided raid. From here you choose what to send, and when.', secs: 7 },
+    ] },
+  { id: 'L1', num: 4, title: 'Café 1', sub: '🧛 No defenses', cafe: 0, seed: 101, army: { crowd: 1, lock: 1, polt: 1, vamp: 1 },
+    goals: ALL_GOALS, newCard: 'vamp',
+    tips: [{ when: 'start', say: 'All three goals are open. One ⭐ unlocks the next café.', secs: 6 }] },
+  { id: 'L2', num: 5, title: 'Café 2', sub: '⚡ A 🧑‍🔧 fixer on staff', cafe: 1, seed: 102, army: { crowd: 1, lock: 1, polt: 1, vamp: 1, shock: 1 },
+    goals: ALL_GOALS, newCard: 'shock',
+    tips: [{ when: 'start', say: 'New here: a 🧑‍🔧 fixer, who repairs stations twice as fast.', point: { role: 'fix' }, secs: 6 }] },
+  { id: 'L3', num: 6, title: 'Café 3', sub: '🌑 A 💂 guard, 4 staff', cafe: 2, seed: 103, army: { crowd: 1, lock: 1, polt: 1, vamp: 1, shock: 1, dark: 1 },
+    goals: ALL_GOALS, newCard: 'dark',
+    tips: [{ when: 'start', say: 'A bigger, busier café. New here: a 💂 guard, who spots intruders from farther away and throws them out fast.', point: { role: 'guard' }, secs: 6 }] },
+  { id: 'L4', num: 7, title: 'Café 4', sub: '🪑 Warden Hound', cafe: 3, seed: 104, army: { crowd: 1, hog: 1, lock: 1, polt: 1, vamp: 1, shock: 1, dark: 1 },
+    goals: ALL_GOALS, newCard: 'hog',
+    tips: [{ when: 'start', say: 'New here: a 🐕 Hound that pins Locksmiths. Food dropped by 👥 Crowd Rush distracts it.', point: { hound: true }, secs: 7 }] },
+  { id: 'L5', num: 8, title: 'Café 5', sub: '❓ A hidden trap, 5 staff', cafe: 4, seed: 105, army: { crowd: 1, hog: 1, lock: 1, polt: 1, vamp: 1, shock: 1, dark: 1 },
+    goals: ALL_GOALS,
+    tips: [{ when: 'start', say: 'New here: a hidden trap. Scouting won\'t show it.', secs: 6 }] },
+  { id: 'L6', num: 9, title: 'Café 6', sub: '🏮 Lantern', cafe: 5, seed: 106, army: { crowd: 1, hog: 1, lock: 1, polt: 1, vamp: 1, shock: 1, dark: 1 },
+    goals: ALL_GOALS,
+    tips: [{ when: 'start', say: 'New here: a 🏮 Lantern. A 🧛 can\'t enter its light. A 🌑 Blackout puts it out.', point: { lantern: 0 }, secs: 7 }] },
+  { id: 'L7', num: 10, title: 'Café 7', sub: '❓ The full café, 6 staff', cafe: 6, seed: 107, army: { crowd: 1, hog: 1, lock: 1, polt: 1, vamp: 1, shock: 1, dark: 1 },
+    goals: ALL_GOALS,
+    tips: [{ when: 'start', say: 'The full café: everything so far, plus one more hidden trap.', secs: 6 }] },
+];
+// Card demos: a second Sim in the popup's small canvas. script = inputs (t = seconds into the siege, at = target
+// for spells and Poltergeists); it restarts after `secs`. focus = what the camera follows (rest = while that is gone).
+const DEMOS = {
+  lock: { cafe: 0, seed: 2, army: { lock: 1 }, script: [{ t: 0.3, card: 'lock' }], secs: 44, speed: 4, span: 11, focus: { unit: 'lock' }, rest: { entry: 'window' } },
+  polt: { cafe: 0, seed: 2, army: { polt: 1 }, script: [{ t: 0.3, card: 'polt', at: { wallNear: 'oven' } }], secs: 14, speed: 2, span: 9, focus: { station: 'coffee' } },
+  crowd: { cafe: 0, seed: 2, army: { crowd: 2 }, script: [{ t: 0.3, card: 'crowd' }, { t: 1.5, card: 'crowd' }], secs: 36, speed: 4, span: 10, focus: { queue: true } },
+  hog: { cafe: 0, seed: 2, army: { hog: 2 }, script: [{ t: 0.3, card: 'hog' }, { t: 4, card: 'hog' }], secs: 40, speed: 4, span: 10, focus: { table: 1 } },
+  vamp: { cafe: 0, seed: 2, army: { vamp: 1 }, script: [{ t: 0.3, card: 'vamp' }], secs: 16, speed: 2, span: 9, focus: { unit: 'vamp' }, rest: { station: 'coffee' } },
+  shock: { cafe: 0, seed: 2, army: { shock: 1 }, script: [{ t: 1.5, card: 'shock', at: { staff: 0 } }], secs: 6, speed: 1, span: 8, focus: { station: 'counter' } },
+  dark: { cafe: 5, p: { hound: 0, mimic: 0 }, seed: 2, army: { dark: 1, vamp: 1 }, script: [{ t: 1, card: 'dark', at: { lantern: 0 } }, { t: 1.6, card: 'vamp' }], secs: 12, speed: 2, span: 10, focus: { lantern: 0 } },
+};
+
+const PROG_KEY = 'hexbrew-progress-v11';
+const prog = Object.assign({ raids: {}, seen: {} }, store.get(PROG_KEY, {}));
+const saveProg = () => store.set(PROG_KEY, prog);
+const isWon = i => !!(prog.raids[RAIDS[i].id] && prog.raids[RAIDS[i].id].won);
+const isOpen = i => DEBUG || i === 0 || isWon(i - 1);
+
+const game = { sim: null, def: null, obs: null, speed: 1, paused: false, sel: null, replay: null, lastRun: null,
+  resultShown: false, dpr: 1, bannerTimer: 0, endArmed: 0, goalEnd: false, screen: 'home' };
+const cam = { T: 32, cx: W / 2, cy: H / 2, vw: 300, vh: 300, tx: null, ty: null };     // T = pixels per tile
+const cv = $('cv'), ctx = cv.getContext('2d');
+
+function showScreen(name) {
+  game.screen = name;
+  $('home').classList.toggle('show', name === 'home');
+  $('raid').classList.toggle('show', name === 'raid');
+}
+function flash(msg) {
+  const b = $('banner'); b.textContent = msg; b.classList.add('show');
+  clearTimeout(game.bannerTimer); game.bannerTimer = setTimeout(() => b.classList.remove('show'), 2200);
+}
+function showErr(m) { const el = $('err'); el.style.display = 'block'; el.textContent += m + '\n'; }
+window.addEventListener('error', e => showErr((e.message || e) + ' @' + (e.lineno || '?')));
+
+// ---------- targets (entity name -> tile) ----------
+function targetTile(pt, sim) {
+  if (!pt) return null;
+  const named = k => STATIONS.find(s => s.key === k) || LOCKS.find(l => l.key === k);
+  if (pt.lock) { const l = LOCKS.find(l => l.key === pt.lock); return [l.x, l.y]; }
+  if (pt.station) { const s = STATIONS.find(s => s.key === pt.station); return [s.x, s.y]; }
+  if (pt.entry) return [ENTRIES[pt.entry].x, ENTRIES[pt.entry].y];
+  if (pt.wallNear) { const e = named(pt.wallNear); return wallSnap(e.x, e.y); }
+  if (pt.unit) { const t = sim && sim.tms.find(t => t.kind === pt.unit); return t ? [t.x, t.y] : null; }
+  if (pt.staff !== undefined) { const s = sim && sim.staff[pt.staff]; return s ? [s.x, s.y] : null; }
+  if (pt.role) { const s = sim && sim.staff.find(s => s.prio === pt.role); return s ? [s.x, s.y] : null; }
+  if (pt.table !== undefined) { const t = TABLES[pt.table]; return [t.x, (t.y + t.sy) / 2]; }
+  if (pt.hound) return sim && sim.hound ? [sim.hound.x, sim.hound.y] : null;
+  if (pt.lantern !== undefined) return LANTERNS[pt.lantern];
+  if (pt.queue) return QUEUE_SLOTS[1];
+  return null;
+}
+
+// ---------- observer: turns sim state changes into events (for tips and "why" lines) and on-map callouts ----------
+function newObs(sim) {
+  return { tms: new Map(), fx: new WeakSet(), st: sim.stations.map(() => null), locks: sim.locks.map(() => false),
+    staff: sim.staff.map(() => ({ f: false, s: false, l: false })), mimic: true, pin: false, eat: false, bell: false,
+    ejected: 0, stars: { rep: false, vault: false, chaos: false }, events: [], outs: [], onStar: null };
+}
+function observe(sim, o) {
+  const p = sim.p;
+  const ev = (kind, x, y, txt, col, extra) => {
+    o.events.push(Object.assign({ kind, t: sim.tick }, extra));
+    if (!txt) return;
+    let n = 0;
+    for (const c of o.outs) if (sim.tick - c.t < 20 && Math.abs(c.x - x) < 2.5 && Math.abs(c.y0 - y) < 1) n++;
+    o.outs.push({ txt, x, y: y - 0.55 * n, y0: y, col: col || '#fff', t: sim.tick });
+  };
+  const live = new Set();
+  for (const t of sim.tms) { live.add(t.id); o.tms.set(t.id, { kind: t.kind, x: t.x, y: t.y, carry: t.carry || 0, vault: !!t.vaultLoot }); }
+  for (const [id, s] of o.tms) {
+    if (live.has(id)) continue;
+    o.tms.delete(id);
+    if (sim.ejected > o.ejected) {
+      o.ejected++;
+      ev('caught', s.x, s.y, s.kind === 'vamp' ? 'Repelled!' : s.carry ? 'Caught! Loot taken back' : 'Caught!', '#ff6b6b', { unit: s.kind, carry: s.carry, vault: s.vault });
+    } else if (s.kind === 'lock') ev('escaped', s.x, s.y, s.carry ? 'Escaped with ' + s.carry + ' 💰' : 'Escaped', '#ffd166', { carry: s.carry });
+    else if (s.kind === 'polt') ev('faded', s.x, s.y, 'Faded away', '#cfd8dc');
+    else ev('left', s.x, s.y, 'Flew off', '#cfd8dc');
+  }
+  o.ejected = sim.ejected;
+  sim.stations.forEach((st, i) => {
+    if (st.dis === o.st[i]) return;
+    if (st.dis === 'haunt') ev('haunted', st.x, st.y, 'Haunted!', '#9db4ff', { key: st.key });
+    else if (st.dis === 'jam') ev('jammed', st.x, st.y, 'Jammed!', '#c9a0ff', { key: st.key });
+    else ev('fixed', st.x, st.y, 'Fixed', '#7ddc8f', { key: st.key });
+    o.st[i] = st.dis;
+  });
+  sim.locks.forEach((l, i) => {
+    if (l.picked && !o.locks[i]) { o.locks[i] = true; ev('picked', l.x, l.y, 'Picked! +' + p['lootT' + l.tier], '#ffd166', { key: l.key }); }
+  });
+  sim.staff.forEach((s, i) => {
+    const b = o.staff[i], f = sim.tick < s.faintUntil, st = sim.tick < s.stunUntil, l = !!s.latchedBy;
+    if (f && !b.f) ev('fainted', s.x, s.y, 'Fainted!', '#ffd166', { staff: i });
+    if (st && !b.s) ev('stunned', s.x, s.y, 'Stunned!', '#7fe3ff', { staff: i });
+    if (l && !b.l) ev('latched', s.x, s.y, 'Draining…', '#ff8fa3', { staff: i });
+    b.f = f; b.s = st; b.l = l;
+  });
+  if (sim.mimic && !sim.mimic.armed && o.mimic) { o.mimic = false; ev('mimic', sim.mimic.x, sim.mimic.y, 'MIMIC! A fake stash', '#ff6b6b'); }
+  const h = sim.hound;
+  if (h) {
+    const pin = h.state === 'pin', eat = h.state === 'eat';
+    if (pin && !o.pin) ev('pinned', h.x, h.y, 'Pinned!', '#ffb86b');
+    if (eat && !o.eat) ev('distracted', h.x, h.y, 'Distracted', '#ffb86b');
+    o.pin = pin; o.eat = eat;
+  }
+  if (sim.bell.fired && !o.bell) { o.bell = true; ev('bell', BELL[0], BELL[1], 'ALARM! Hidden bell', '#ff6b6b'); }
+  for (const f of sim.fx) {
+    if (o.fx.has(f)) continue;
+    o.fx.add(f);
+    if (f.kind === 'angry' || f.kind === 'rep') ev('repLoss', f.x, f.y, '😡 −' + f.amt + ' reputation', '#ff6b6b');
+    else if (f.kind === 'turn') ev('repLoss', f.x, f.y, (f.dine ? 'No table −' : 'Turned away −') + f.amt, '#ff6b6b', { dine: !!f.dine });
+  }
+  for (const k of ALL_GOALS) if (sim.stars[k] && !o.stars[k]) { o.stars[k] = true; ev('star', 0, 0, '', '', { key: k }); if (o.onStar) o.onStar(k); }
+  if (o.outs.length > 40) o.outs.splice(0, o.outs.length - 40);
+}
+
+// ---------- rendering (shared by the raid map and the popup demo) ----------
+// v = { T, ox, oy }: tile size in px and the pixel offset of tile (0,0)'s corner. o = { now, sel, want, obs, showOw }.
+const EMOJI_FONT = '"Segoe UI Emoji", "Noto Color Emoji", "Apple Color Emoji", sans-serif';
+function drawWorld(c, sim, v, o) {
+  const T = v.T, now = o.now || 0;
+  c.save(); c.translate(v.ox, v.oy);
+  const px = a => (a + 0.5) * T;               // tile coord → pixel centre
+  const font = (k, bold) => `${bold ? '700 ' : ''}${Math.max(9, Math.round(T * k))}px system-ui, sans-serif`;
+  const emo = (ch, x, y, k) => { c.fillStyle = '#fff'; c.font = `${Math.max(9, Math.round(T * (k || 0.74)))}px ${EMOJI_FONT}`; c.fillText(ch, x, y + T * 0.05); };
+  c.textAlign = 'center'; c.textBaseline = 'middle';
+
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const g = GRID[y * W + x];
+    c.fillStyle = g === 1 ? '#22252c' : ((x + y) & 1 ? '#4b4f58' : '#474b54');
+    if (g !== 1 && y >= 9) c.fillStyle = x > 15 ? ((x + y) & 1 ? '#5b4f45' : '#564a41') : ((x + y) & 1 ? '#53504a' : '#4e4b45');   // dining room | take-out floor
+    c.fillRect(x * T, y * T, T + 0.5, T + 0.5);
+  }
+  const pulse = 0.5 + 0.5 * Math.sin(now / 160);
+  const glow = (x, y) => {
+    c.strokeStyle = `rgba(240,180,41,${0.4 + 0.6 * pulse})`; c.lineWidth = 3;
+    c.beginPath(); c.arc(px(x), px(y), T * (0.9 + 0.4 * pulse), 0, 7); c.stroke();
+  };
+
+  // entry points
+  const selCard = CARDS.find(k => k.key === o.sel);
+  for (const k in ENTRIES) {
+    const e = ENTRIES[k];
+    c.fillStyle = k === 'door' ? '#8a5a2b' : k === 'dine' ? '#a8672f' : k === 'window' ? '#7fb6d9' : '#7a2e2e';
+    c.fillRect(e.x * T + 2, e.y * T + 2, T - 4, T - 4);
+    emo(EMO.entry[k], px(e.x), px(e.y), 0.7);
+    if (EMO.entryTag[k]) emo(EMO.entryTag[k], px(e.inX), px(e.inY), 0.5);     // which door: take-out or dining
+    if (selCard && selCard.entry === k) glow(e.x, e.y);
+  }
+  if (selCard && selCard.entry === 'wall') {
+    if (o.want) glow(o.want[0], o.want[1]);
+    else { c.strokeStyle = `rgba(240,180,41,${0.4 + 0.6 * pulse})`; c.lineWidth = 3; c.strokeRect(T * 0.5, T * 0.5, (W - 1) * T, (H - 1) * T); }
+  }
+  // Lantern light (warm tiles) under everything; the Vampire won't step on it
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++)
+    if (sim.lit[y * W + x] && GRID[y * W + x] !== 1) { c.fillStyle = 'rgba(255,214,120,0.16)'; c.fillRect(x * T, y * T, T + 0.5, T + 0.5); }
+
+  // stations
+  for (const st of sim.stations) {
+    const x0 = st.key === 'counter' ? st.x - 1 : st.x, w = st.key === 'counter' ? 3 : 1;
+    c.fillStyle = '#7d8798';
+    c.fillRect(x0 * T + 2, st.y * T + 2, w * T - 4, T - 4);
+    if (st.dis === 'haunt') {                    // haunted: blue with a dashed outline
+      c.fillStyle = 'rgba(80,100,210,0.85)'; c.fillRect(x0 * T + 2, st.y * T + 2, w * T - 4, T - 4);
+      c.strokeStyle = '#dfe6f0'; c.lineWidth = 2; c.setLineDash([3, 3]);
+      c.strokeRect(x0 * T + 4, st.y * T + 4, w * T - 8, T - 8); c.setLineDash([]);
+    } else if (st.dis === 'jam') c.fillStyle = 'rgba(150,80,220,0.85)', c.fillRect(x0 * T + 2, st.y * T + 2, w * T - 4, T - 4);
+    emo(EMO.station[st.key], px(st.x), px(st.y), 0.7);
+    if (st.dis) emo(st.dis === 'haunt' ? '👻' : '🔧', px(st.x) + T * 0.34, px(st.y) - T * 0.3, 0.42);
+    if (st.dis && st.repair > 0) {
+      c.fillStyle = '#000a'; c.fillRect(x0 * T + 2, st.y * T + T - 7, w * T - 4, 5);
+      c.fillStyle = '#46a758'; c.fillRect(x0 * T + 2, st.y * T + T - 7, (w * T - 4) * Math.min(1, st.repair / sim.p.repairJam), 5);
+    }
+  }
+  // dining tables (a plant pot where this level has no table): brown = clean, dark with dishes = dirty
+  TABLES.forEach((tb, i) => {
+    const t = sim.tables[i];
+    if (!t) { emo(EMO.plant, px(tb.x), px(tb.y), 0.7); return; }
+    c.fillStyle = 'rgba(0,0,0,0.22)'; c.beginPath(); c.arc(px(tb.sx), px(tb.sy), T * 0.38, 0, 7); c.fill();   // the seat
+    c.fillStyle = t.dirty ? '#5a4030' : '#b98a55'; c.fillRect(tb.x * T + 3, tb.y * T + 3, T - 6, T - 6);
+    if (t.dirty) emo(EMO.dirty, px(tb.x), px(tb.y), 0.62);
+    else if (t.cust && t.cust.state === 'eat') emo(EMO.station[STATIONS[t.cust.item].key], px(tb.x), px(tb.y), 0.6);
+    if (t.dirty && t.clean > 0) {
+      c.fillStyle = '#000a'; c.fillRect(tb.x * T + 2, tb.y * T + T - 7, T - 4, 5);
+      c.fillStyle = '#46a758'; c.fillRect(tb.x * T + 2, tb.y * T + T - 7, (T - 4) * Math.min(1, t.clean / sim.p.cleanTime), 5);
+    }
+  });
+  // locks (gold = full, dark = picked) and the Mimic: looks like the stash until it bites
+  const lockBox = (l, picked, ch) => {
+    if (l.key !== 'till') { c.fillStyle = picked ? '#3a2a2a' : '#b8942f'; c.fillRect(l.x * T + 3, l.y * T + 3, T - 6, T - 6); }
+    c.globalAlpha = picked ? 0.35 : 1; emo(ch, px(l.x), px(l.y), l.key === 'till' ? 0.6 : 0.7); c.globalAlpha = 1;
+    if (picked) { c.fillStyle = '#fff'; c.font = font(0.4, true); c.fillText('✓', px(l.x), px(l.y)); }
+  };
+  for (const l of sim.locks) lockBox(l, l.picked, EMO.lock[l.key]);
+  if (sim.mimic) {
+    const m = sim.mimic;
+    if (m.armed) lockBox(m, false, EMO.lock.mimic);
+    else { c.fillStyle = '#8b1e3f'; c.fillRect(m.x * T + 3, m.y * T + 3, T - 6, T - 6); emo(EMO.mimicBit, px(m.x), px(m.y), 0.7); }
+  }
+  // Lanterns (faded when a Blackout put them out)
+  if (sim.p.lantern > 0) LANTERNS.forEach((l, i) => {
+    const on = sim.lanternOn[i];
+    if (on) { c.fillStyle = 'rgba(255,214,120,0.35)'; c.beginPath(); c.arc(px(l[0]), px(l[1]), T * 0.48, 0, 7); c.fill(); }
+    c.globalAlpha = on ? 1 : 0.35; emo(EMO.lantern, px(l[0]) - T * 0.3, px(l[1]) - T * 0.3, 0.5); c.globalAlpha = 1;
+  });
+  if (sim.bell.fired) emo(EMO.bell, px(BELL[0]), px(BELL[1]), sim.tick - sim.bell.at < 60 && pulse > 0.5 ? 0.9 : 0.7);
+  for (const f of sim.food) emo(EMO.food, px(f.x) + T * 0.25, px(f.y) + T * 0.25, 0.42);
+  // Blackout areas
+  for (const d of sim.dark) {
+    c.fillStyle = 'rgba(8,6,24,0.55)'; c.strokeStyle = 'rgba(107,91,214,0.9)'; c.lineWidth = 2;
+    c.beginPath(); c.arc(px(d.x), px(d.y), d.r * T, 0, 7); c.fill(); c.stroke();
+  }
+  // customers: the face shows patience; Crowd Rush and Table Hogger members wear sunglasses
+  for (const k of sim.customers) {
+    let ch;
+    if (k.tm) ch = EMO.crowd;
+    else if (k.state === 'leaving') ch = k.angry ? EMO.angry : EMO.cust[0];
+    else { const f = k.patience / k.patience0; ch = EMO.cust[f > 0.5 ? 0 : f > 0.25 ? 1 : 2]; }
+    if (k.state === 'leaving' && !k.angry) c.globalAlpha = 0.55;
+    emo(ch, px(k.x), px(k.y), 0.56); c.globalAlpha = 1;
+    if (k.state === 'pickup' || k.state === 'food') emo(EMO.station[STATIONS[k.item].key], px(k.x) + T * 0.3, px(k.y) - T * 0.3, 0.34);   // what they ordered
+    else if (k.state === 'sit' && k.seated) emo(EMO.wantsOrder, px(k.x) + T * 0.3, px(k.y) - T * 0.3, 0.34);          // seated, wants to order
+    if (k.heldBy) { c.strokeStyle = '#fff'; c.lineWidth = 2; c.beginPath(); c.arc(px(k.x), px(k.y), T * 0.36, 0, 7); c.stroke(); }
+  }
+  // Warden Hound: patrol zone and reveal radius
+  const h = sim.hound;
+  if (h) {
+    c.setLineDash([4, 4]); c.strokeStyle = 'rgba(176,122,74,0.6)'; c.lineWidth = 1.5;
+    c.beginPath(); c.arc(px(HOUND_HOME[0]), px(HOUND_HOME[1]), sim.p.houndZone * T, 0, 7); c.stroke();
+    const busy = h.state === 'food' || h.state === 'eat';
+    c.strokeStyle = busy ? 'rgba(136,136,136,0.6)' : 'rgba(127,227,255,0.55)';
+    c.beginPath(); c.arc(px(h.x), px(h.y), sim.p.houndReveal * T, 0, 7); c.stroke(); c.setLineDash([]);
+    emo(EMO.hound, px(h.x), px(h.y), 0.8);
+  }
+  // troublemakers
+  for (const t of sim.tms) {
+    const latched = t.kind === 'vamp' && t.latch;
+    const ox = latched ? T * 0.32 : 0, oy = latched ? -T * 0.32 : 0;    // a latched Vampire sits on its staff's shoulder
+    const jx = (t.heldBy ? Math.sin(now / 30) * 2 : 0) + ox;
+    c.fillStyle = 'rgba(0,0,0,0.35)'; c.beginPath(); c.arc(px(t.x) + jx, px(t.y) + oy, T * (latched ? 0.3 : 0.42), 0, 7); c.fill();
+    if (sim.inWall(t)) c.globalAlpha = 0.5;     // inside a wall: staff can't catch it
+    emo(EMO.card[t.kind], px(t.x) + jx, px(t.y) + oy, latched ? 0.55 : 0.8);
+    c.globalAlpha = 1;
+    if (t.revealed) { c.setLineDash([2, 3]); c.strokeStyle = '#7fe3ff'; c.lineWidth = 2; c.beginPath(); c.arc(px(t.x) + jx, px(t.y) + oy, T * 0.5, 0, 7); c.stroke(); c.setLineDash([]); }
+    if (t.carry) emo(EMO.loot, px(t.x) + jx + T * 0.36, px(t.y) - T * 0.34, t.vaultLoot ? 0.6 : 0.4);
+    if (sim.tick < t.stunUntil) {        // held by the Hound (brown) or the Mimic (red)
+      const pinned = h && h.state === 'pin' && h.target === t;
+      c.strokeStyle = pinned ? '#b07a4a' : '#e5484d'; c.lineWidth = 3; c.beginPath(); c.arc(px(t.x), px(t.y), T * 0.48, 0, 7); c.stroke();
+    }
+    if ((t.state === 'pick' || t.state === 'haunt') && t.prog > 0) {
+      const need = t.state === 'pick' ? sim.p['lockT' + t.target.tier] : sim.p.hauntTime;
+      c.strokeStyle = '#fff'; c.lineWidth = 3; c.beginPath();
+      c.arc(px(t.x), px(t.y), T * 0.52, -1.57, -1.57 + 6.283 * Math.min(1, t.prog / need)); c.stroke();
+    }
+  }
+  // staff (Energy bar under each one that isn't full)
+  for (const s of sim.staff) {
+    const t = s.task, stunned = sim.tick < s.stunUntil, fainted = sim.tick < s.faintUntil;
+    if (t && t.kind === 'guard' && !t.holding) {
+      c.strokeStyle = t.target.tm ? '#e8c547' : '#ff5c5c'; c.setLineDash([3, 3]);   // yellow = going to check a crowd member
+      c.lineWidth = 1.5; c.beginPath();
+      c.moveTo(px(s.x), px(s.y)); c.lineTo(px(t.target.x), px(t.target.y)); c.stroke(); c.setLineDash([]);
+    }
+    c.fillStyle = fainted ? 'rgba(60,70,64,0.8)' : 'rgba(63,191,106,0.85)'; c.beginPath(); c.arc(px(s.x), px(s.y), T * 0.44, 0, 7); c.fill();
+    if (s.latchedBy) { c.strokeStyle = '#d0314f'; c.lineWidth = 3; c.beginPath(); c.arc(px(s.x), px(s.y), T * 0.48, 0, 7); c.stroke(); }
+    if (stunned) { c.strokeStyle = '#7fe3ff'; c.lineWidth = 3; c.setLineDash([2, 2]); c.beginPath(); c.arc(px(s.x), px(s.y), T * 0.5, 0, 7); c.stroke(); c.setLineDash([]); }
+    if (fainted) c.globalAlpha = 0.5;
+    emo(EMO.staff[s.prio], px(s.x), px(s.y), 0.7); c.globalAlpha = 1;
+    if (t && t.kind === 'serve' && t.step === 'deliver') emo(EMO.station[STATIONS[t.cust.item].key], px(s.x) + T * 0.34, px(s.y) - T * 0.34, 0.36);
+    if (stunned) emo(EMO.stun, px(s.x) - T * 0.4, px(s.y) - T * 0.45, 0.45);
+    if (fainted) emo(EMO.faint, px(s.x) + T * 0.4, px(s.y) - T * 0.45, 0.45);
+    if (s.energy < sim.p.energyMax) {
+      const f = s.energy / sim.p.energyMax, bw = T * 0.9, bx = px(s.x) - bw / 2, by = px(s.y) + T * 0.46, bh = Math.max(4, T * 0.14);
+      c.fillStyle = '#000c'; c.fillRect(bx - 1, by - 1, bw + 2, bh + 2);
+      c.fillStyle = f > 0.5 ? '#46a758' : f > 0.2 ? '#f0b429' : '#e5484d'; c.fillRect(bx, by, bw * f, bh);
+    }
+    if (t && t.kind === 'guard' && t.holding && t.target.tm && sim.p.crowdCheck > 0) {   // checking a crowd member
+      c.strokeStyle = '#e8c547'; c.lineWidth = 3; c.beginPath();
+      c.arc(px(s.x), px(s.y), T * 0.52, -1.57, -1.57 + 6.283 * Math.min(1, t.hold / sim.p.crowdCheck)); c.stroke();
+      emo('❓', px(s.x) + T * 0.45, px(s.y) - T * 0.55, 0.4);
+    }
+    if (t && t.step === 'clean' && t.table.clean > 0) emo('🧽', px(s.x) + T * 0.34, px(s.y) - T * 0.34, 0.36);
+  }
+  // red "!" over every unanswered problem (why the Overwhelm bar is filling); hidden until Overwhelm is a goal
+  if (o.showOw) for (const u of sim.unanswered) {
+    const st = !u.prio;                  // stations have no prio; staff do
+    const bx = px(u.x) + (st ? -T * 0.34 : T * 0.42), by = px(u.y) - T * (st ? 0.42 : 0.55), r = T * (0.22 + 0.04 * pulse);
+    c.fillStyle = '#e5484d'; c.strokeStyle = '#fff'; c.lineWidth = 1.5;
+    c.beginPath(); c.arc(bx, by, r, 0, 7); c.fill(); c.stroke();
+    c.fillStyle = '#fff'; c.font = font(0.34, true); c.fillText('!', bx, by + 1);
+  }
+  for (const f of sim.fx) if (f.kind === 'shock') {      // Neuroshock: a cyan flash over the circle
+    c.strokeStyle = '#7fe3ff'; c.lineWidth = 3; c.fillStyle = 'rgba(127,227,255,0.18)';
+    c.beginPath(); c.arc(px(f.x), px(f.y), f.r * T, 0, 7); c.fill(); c.stroke();
+  }
+  // callouts: what just happened, where it happened (rise and fade over 2 s)
+  if (o.obs) for (const k of o.obs.outs) {
+    const age = (sim.tick - k.t) / 60;
+    if (age < 0 || age > 1) continue;
+    c.globalAlpha = age < 0.7 ? 1 : (1 - age) / 0.3;
+    c.font = `700 ${Math.max(11, Math.round(T * 0.4))}px system-ui, ${EMOJI_FONT}`;
+    const hw = c.measureText(k.txt).width / 2 + 4;         // keep the label inside the view
+    const x = Math.max(-v.ox + hw, Math.min(-v.ox + (v.w || 1e9) - hw, px(k.x))), y = px(k.y) - T * (0.75 + 0.5 * age);
+    c.strokeStyle = '#111'; c.lineWidth = 4; c.lineJoin = 'round'; c.strokeText(k.txt, x, y);
+    c.fillStyle = k.col; c.fillText(k.txt, x, y);
+    c.globalAlpha = 1;
+  }
+  c.restore();
+}
+
+// ---------- camera: drag to pan, pinch or wheel to zoom ----------
+const fitT = () => Math.min(cam.vw / W, cam.vh / H);                 // whole map visible
+const coverT = () => Math.max(cam.vw / W, cam.vh / H);               // map fills the view
+const maxT = () => Math.max(coverT() * 1.4, 64);
+function clampCam() {
+  cam.T = Math.max(fitT(), Math.min(maxT(), cam.T));
+  const hw = cam.vw / 2 / cam.T, hh = cam.vh / 2 / cam.T;
+  cam.cx = W <= hw * 2 ? W / 2 : Math.max(hw, Math.min(W - hw, cam.cx));
+  cam.cy = H <= hh * 2 ? H / 2 : Math.max(hh, Math.min(H - hh, cam.cy));
+}
+// Portrait: the map fills the height and you pan sideways. Landscape: the whole map fits.
+function resetCam() { cam.T = cam.vw < cam.vh ? Math.min(coverT(), 56) : fitT(); cam.cx = W / 2; cam.cy = H / 2; cam.tx = null; clampCam(); }
+const view = () => ({ T: cam.T, ox: cam.vw / 2 - cam.cx * cam.T, oy: cam.vh / 2 - cam.cy * cam.T, w: cam.vw });
+// Pan so the target is as near the middle as the map edges allow (eased; a drag cancels it).
+function focusOn(pt) {
+  const t = targetTile(pt, game.sim);
+  if (!t) return;
+  const hw = cam.vw / 2 / cam.T, hh = cam.vh / 2 / cam.T;
+  cam.tx = W <= hw * 2 ? W / 2 : Math.max(hw, Math.min(W - hw, t[0] + 0.5));
+  cam.ty = H <= hh * 2 ? H / 2 : Math.max(hh, Math.min(H - hh, t[1] + 0.5));
+  if (SHOT) { cam.cx = cam.tx; cam.cy = cam.ty; cam.tx = null; }
+}
+function easeCam(dt) {
+  if (cam.tx === null) return;
+  const k = Math.min(1, dt * 6);
+  cam.cx += (cam.tx - cam.cx) * k; cam.cy += (cam.ty - cam.cy) * k;
+  if (Math.abs(cam.tx - cam.cx) < 0.02 && Math.abs(cam.ty - cam.cy) < 0.02) { cam.cx = cam.tx; cam.cy = cam.ty; cam.tx = null; }
+}
+function resize() {
+  const st = $('stage'), w = st.clientWidth, h = st.clientHeight;
+  if (!w || !h) return;
+  const flip = (cam.vw < cam.vh) !== (w < h);
+  cam.vw = w; cam.vh = h; game.dpr = window.devicePixelRatio || 1;
+  cv.width = Math.round(w * game.dpr); cv.height = Math.round(h * game.dpr);
+  if (flip) resetCam(); else clampCam();
+}
+window.addEventListener('resize', resize);
+
+const ptrs = new Map();
+let gest = null;
+const stagePos = e => { const r = cv.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+function pinchState() {
+  const [a, b] = [...ptrs.values()];
+  const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2, v = view();
+  return { pinch: true, moved: true, d: Math.hypot(a[0] - b[0], a[1] - b[1]) || 1, T: cam.T, wx: (mx - v.ox) / v.T, wy: (my - v.oy) / v.T };
+}
+cv.addEventListener('pointerdown', e => {
+  e.preventDefault();
+  try { cv.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+  ptrs.set(e.pointerId, stagePos(e));
+  if (ptrs.size === 1) { const p = stagePos(e); gest = { x: p[0], y: p[1], cx: cam.cx, cy: cam.cy, moved: false }; }
+  else if (ptrs.size === 2) gest = pinchState();
+});
+cv.addEventListener('pointermove', e => {
+  if (!ptrs.has(e.pointerId) || !gest) return;
+  const p = stagePos(e); ptrs.set(e.pointerId, p);
+  if (gest.pinch && ptrs.size >= 2) {
+    const [a, b] = [...ptrs.values()];
+    const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
+    cam.T = gest.T * Math.hypot(a[0] - b[0], a[1] - b[1]) / gest.d; clampCam();
+    cam.cx = gest.wx - (mx - cam.vw / 2) / cam.T; cam.cy = gest.wy - (my - cam.vh / 2) / cam.T;
+    cam.tx = null; clampCam();
+  } else if (!gest.pinch) {
+    const dx = p[0] - gest.x, dy = p[1] - gest.y;
+    if (!gest.moved && Math.hypot(dx, dy) > 8) gest.moved = true;
+    if (gest.moved) { cam.cx = gest.cx - dx / cam.T; cam.cy = gest.cy - dy / cam.T; cam.tx = null; clampCam(); }
+  }
+});
+function pointerEnd(e, cancelled) {
+  if (!ptrs.has(e.pointerId)) return;
+  const p = stagePos(e), g = gest;
+  ptrs.delete(e.pointerId);
+  if (ptrs.size === 0) {
+    gest = null;
+    if (g && !g.moved && !g.pinch && !cancelled) { const v = view(); tapTile((p[0] - v.ox) / v.T - 0.5, (p[1] - v.oy) / v.T - 0.5); }
+  } else if (ptrs.size === 1) {          // one finger left after a pinch: keep panning, never a tap
+    const q = [...ptrs.values()][0]; gest = { x: q[0], y: q[1], cx: cam.cx, cy: cam.cy, moved: true };
+  }
+}
+cv.addEventListener('pointerup', e => pointerEnd(e, false));
+cv.addEventListener('pointercancel', e => pointerEnd(e, true));
+cv.addEventListener('wheel', e => {
+  e.preventDefault();
+  const p = stagePos(e), v = view(), wx = (p[0] - v.ox) / v.T, wy = (p[1] - v.oy) / v.T;
+  cam.T *= e.deltaY < 0 ? 1.15 : 1 / 1.15; clampCam();
+  cam.cx = wx - (p[0] - cam.vw / 2) / cam.T; cam.cy = wy - (p[1] - cam.vh / 2) / cam.T; cam.tx = null; clampCam();
+}, { passive: false });
+
+// ---------- guided raids: steps freeze the sim, tips don't ----------
+const tut = { on: false, steps: [], tips: [], i: 0, active: null, tapped: false, tip: null, tipUntil: 0 };
+function tutReset(def, off) {
+  tut.on = !off && !!(def.steps || def.tips);
+  tut.steps = (tut.on && def.steps) || [];
+  tut.tips = ((tut.on && def.tips) || []).map(t => ({ t, done: false }));
+  tut.i = 0; tut.active = null; tut.tapped = false; tut.tip = null;
+}
+const sentCount = k => game.sim.inputs.filter(i => i.type === 'deploy' && i.card === k).length;
+function cond(c) {
+  const sim = game.sim;
+  if (!c || c === 'start') return true;
+  if (c === 'tap') return tut.tapped;
+  if (c.phase) return sim.phase === c.phase;
+  if (c.sel) return game.sel === c.sel;
+  if (c.sent) return sentCount(c.sent) >= (c.n || 1);
+  if (c.mis) return sim.phase === 'siege' && sim.mischief >= c.mis;
+  if (c.ev) return game.obs.events.some(e => e.kind === c.ev && (!c.key || e.key === c.key));
+  return false;
+}
+// Called after every sim step and every player action.
+function tutCheck() {
+  if (!tut.on || !game.sim || game.sim.phase === 'over' || game.sim.phase === 'settle') { tut.active = null; return; }
+  for (let guard = 0; guard < 12; guard++) {
+    if (tut.active) {
+      if (!cond(tut.active.until)) break;
+      tut.active = null; tut.i++; tut.tapped = false;
+    }
+    const s = tut.steps[tut.i];
+    if (!s || !cond(s.when)) break;
+    tut.active = s; tut.tapped = false;
+    if (s.card) game.sel = s.card;
+    focusOn(s.point);
+  }
+  if (!tut.active) for (const t of tut.tips) {
+    if (t.done || !cond(t.t.when)) continue;
+    t.done = true; tut.tip = t.t; tut.tipUntil = performance.now() + (t.t.secs || 5) * 1000; focusOn(t.t.point);
+    break;
+  }
+}
+const frozen = () => !!tut.active;
+// A "tap to continue" step: any tap or click on the raid screen continues (and does nothing else).
+document.addEventListener('click', e => {
+  if (game.screen !== 'raid' || !tut.active || tut.active.until !== 'tap' || document.querySelector('.overlay.show')) return;
+  e.stopPropagation(); e.preventDefault();
+  tut.tapped = true; tutCheck();
+}, true);
 
 // ---------- raid lifecycle ----------
-function startRaid(replay) {
-  $('setup').classList.remove('show'); $('result').classList.remove('show');
+function defParams(def) { return Object.assign({}, P, (LEVELS[def.cafe] || LEVELS[0]).p, def.params || {}); }
+function hideOverlays() { for (const id of ['setup', 'result', 'popup', 'guide']) $(id).classList.remove('show'); }
+function startRaid(def, replay) {
+  hideOverlays(); showScreen('raid');
+  game.def = def;
   if (replay) {
     game.sim = new Sim(replay.cfg);
     game.sim.inputs = replay.inputs.map(i => Object.assign({}, i)).sort((a, b) => a.tick - b.tick);
     game.replay = replay;
   } else {
-    game.sim = new Sim({ seed: setup.seed, params: levelParams(), army: setup.army, prio: setup.prio });
+    game.sim = new Sim({ seed: def.seed, params: defParams(def), army: def.army, prio: def.prio || LEVELS[def.cafe].prio });
     game.replay = null;
   }
-  game.level = replay && replay.level !== undefined ? replay.level : setup.level;
-  game.sel = null; game.resultShown = false; game.paused = false;
-  buildCards(); resize();
-  flash(replay ? 'Replaying your inputs…' : 'Scout the café. Tap "Start siege" when ready.');
+  game.obs = newObs(game.sim);
+  game.obs.onStar = k => { if (def.goals.includes(k)) flash('⭐ ' + GOALS[k].star); };
+  game.sel = null; game.resultShown = false; game.paused = false; game.endArmed = 0; game.goalEnd = false;
+  tutReset(def, !!replay);
+  buildCards(); buildGoals(); resize(); resetCam();
+  if (!replay && def.scout === false) { game.sim.addInput({ type: 'siege' }); stepSim(); }
+  else tutCheck();
+  if (replay) flash('Replaying your inputs…');
 }
-function restartSameSeed() { startRaid(); }
+// One sim step, then everything the shell derives from it. In a raid with fewer than three goals the
+// shell ends the raid (the normal End raid input) as soon as its goals are won.
+function stepSim() {
+  const sim = game.sim;
+  sim.step(); observe(sim, game.obs);
+  if (!game.replay && !game.goalEnd && sim.phase === 'siege' && game.def.goals.length < 3 && game.def.goals.every(g => sim.stars[g])) {
+    game.goalEnd = true; sim.addInput({ type: 'end' });
+  }
+  tutCheck();
+}
+// A player input. While a step has the sim frozen, the input is applied at once (one step) so the next
+// step can see its effect; the freeze makes guided raids play out the same for every tester.
+function playerInput(inp) {
+  game.sim.addInput(inp);
+  if (frozen()) stepSim(); else tutCheck();
+}
+function openRaid(i) {
+  const def = RAIDS[i];
+  if (!def || !isOpen(i)) return;
+  if (def.newCard && !prog.seen[def.newCard]) openPopup(def.newCard, () => startRaid(def));
+  else startRaid(def);
+}
+function goHome() { hideOverlays(); game.sim = null; tut.active = null; buildHome(); showScreen('home'); }
 
 $('btnSiege').onclick = () => {
   const sim = game.sim;
   if (!sim || game.replay || sim.phase !== 'scout') return;
-  sim.addInput({ type: 'siege' });
+  playerInput({ type: 'siege' });
 };
+// ✕: leaving during the scout is free; during the siege it ends the raid and needs a second tap.
 $('btnEnd').onclick = () => {
   const sim = game.sim;
-  if (sim && !game.replay && sim.phase === 'siege') sim.addInput({ type: 'end' });
+  if (!sim) return;
+  if (sim.phase === 'scout' || game.replay) { goHome(); return; }
+  if (sim.phase !== 'siege') return;
+  if (performance.now() < game.endArmed) { game.endArmed = 0; tut.on = false; tut.active = null; sim.addInput({ type: 'end' }); }
+  else { game.endArmed = performance.now() + 2500; flash('Tap again to end the raid'); }
 };
-function logTime(sim, t) {
-  if (sim.siegeStart < 0 || t < sim.siegeStart) return 'scout';
-  const s = Math.floor((t - sim.siegeStart) * DT);
-  return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
-}
-$('btnPause').onclick =() => { game.paused = !game.paused; };
+$('btnPause').onclick = () => { game.paused = !game.paused; };
 $('btnSpeed').onclick = () => { game.speed = game.speed === 1 ? 2 : game.speed === 2 ? 4 : 1; };
-$('btnDebug').onclick = () => { buildSliders(); $('debug').classList.add('show'); };
-$('dbgClose').onclick = () => $('debug').classList.remove('show');
-$('btnSetup').onclick = showSetup;
-$('btnToSetup').onclick = showSetup;
-$('btnRestart').onclick = restartSameSeed;
-$('dbgRestart').onclick = () => { $('debug').classList.remove('show'); restartSameSeed(); };
-$('btnNewSeed').onclick = () => { setup.seed = Math.floor(Math.random() * 1e6); store.set('hexbrew-raid-setup-v8', setup); startRaid(); };
-$('btnReplay').onclick = () => { if (game.lastRun) startRaid(game.lastRun); };
 
-// ---------- cards ----------
+// ---------- cards and goals ----------
 function buildCards() {
   const box = $('cards'); box.innerHTML = '';
   for (const c of CARDS) {
-    const d = document.createElement('div'); d.className = 'card'; d.dataset.k = c.key;
-    d.innerHTML = `<div><span class="ico" style="background:${c.col}">${c.ico}</span></div>
-      <div class="nm">${c.name}</div><div class="meta">cost ${game.sim.p[c.cost]}</div><div class="cnt"></div>`;
+    if (!(game.sim.cfg.army[c.key] > 0)) continue;       // only the cards this raid gives you
+    const d = document.createElement('button'); d.className = 'card'; d.dataset.k = c.key;
+    d.innerHTML = `<span class="em">${EMO.card[c.key]}</span><span class="nm">${c.name}</span>
+      <span class="cost">${game.sim.p[c.cost]}</span><span class="cnt"></span>`;
     d.onclick = () => onCard(c);
     box.appendChild(d);
   }
   const pips = $('mispips'); pips.innerHTML = '';
   for (let i = 0; i < game.sim.p.mischiefMax; i++) pips.appendChild(document.createElement('i'));
 }
+function buildGoals() {
+  const box = $('goals'); box.innerHTML = '';
+  for (const g of game.def.goals) {
+    const d = document.createElement('span'); d.className = 'goal'; d.dataset.g = g;
+    d.innerHTML = `<b>${GOALS[g].e}</b>${g === 'vault' ? '' : '<span class="gbar"><i></i></span>'}<i class="st">★</i>`;
+    box.appendChild(d);
+  }
+}
 function onCard(c) {
   const sim = game.sim;
-  if (!sim || game.replay || sim.phase === 'over') return;
+  if (!sim || game.replay || sim.phase === 'over' || sim.phase === 'settle') return;
+  if (tut.active) {                          // a step is waiting: only the card it points at works
+    if (!tut.active.point || tut.active.point.card !== c.key) return;
+  } else if (tut.on && game.def.guided && tut.i < tut.steps.length) { flash('Wait for it…'); return; }
   if (sim.phase === 'scout') { flash('Cards unlock when the siege starts'); return; }
-  if (game.sel === c.key) { game.sel = null; return; }
+  if (game.sel === c.key && !tut.active) { game.sel = null; return; }
   if (sim.army[c.key] <= 0) { flash('None left'); return; }
   game.sel = c.key;
-  flash(c.entry === 'wall' ? 'Tap any outer wall' : c.entry ? 'Tap the glowing ' + ENTRIES[c.entry].label.toLowerCase() : 'Tap where to cast ' + c.name);
+  if (!tut.active) flash(c.entry === 'wall' ? 'Tap any outer wall' : c.entry ? 'Tap the glowing ' + ENTRIES[c.entry].label.toLowerCase() : 'Tap where to cast ' + c.name);
+  tutCheck();
 }
-cv.addEventListener('pointerdown', e => {
+// A tap on the map at tile coords (tx, ty): deploys or casts the selected card.
+function tapTile(tx, ty) {
   const sim = game.sim;
-  if (!sim || game.replay || sim.phase !== 'siege' || !game.sel) return;
-  e.preventDefault();
-  const r = cv.getBoundingClientRect();
-  const tx = (e.clientX - r.left) / r.width * W - 0.5, ty = (e.clientY - r.top) / r.height * H - 0.5;
+  if (!sim || game.replay || game.screen !== 'raid') return;
+  let want = null;
+  if (tut.active) {
+    const u = tut.active.until;
+    if (!u || !u.sent) return;               // this step isn't waiting for a deploy
+    want = targetTile(tut.active.point, sim);
+  }
+  if (sim.phase !== 'siege' || !game.sel) return;
   const card = CARDS.find(c => c.key === game.sel);
-  if (sim.mischief < sim.p[card.cost]) { flash('Not enough Mischief'); return; }
+  if (sim.mischief < sim.p[card.cost]) { flash('Not enough ✨ Mischief'); return; }
   if (sim.army[card.key] <= 0) { game.sel = null; return; }
-  if (!card.entry) {
-    sim.addInput({ type: 'deploy', card: card.key, x: +tx.toFixed(2), y: +ty.toFixed(2) });
-  } else if (card.entry === 'wall') {
-    if (wallDist(tx, ty) > 1.5) { flash('Tap any outer wall'); return; }
-    const [wx, wy] = wallSnap(tx, ty);
-    sim.addInput({ type: 'deploy', card: card.key, x: wx, y: wy });
+  const inp = { type: 'deploy', card: card.key };
+  if (!card.entry) { inp.x = +tx.toFixed(2); inp.y = +ty.toFixed(2); }
+  else if (card.entry === 'wall') {
+    if (want) {                              // guided: the pointed wall tile, whatever the exact tap
+      if (dist(tx, ty, want[0], want[1]) > 3) { flash('Tap the glowing spot'); return; }
+      inp.x = want[0]; inp.y = want[1];
+    } else {
+      if (wallDist(tx, ty) > 1.5) { flash('Tap any outer wall'); return; }
+      const [wx, wy] = wallSnap(tx, ty); inp.x = wx; inp.y = wy;
+    }
   } else {
     const en = ENTRIES[card.entry];
     if (dist(tx, ty, en.x, en.y) > 2.5) { flash('Tap the glowing ' + en.label.toLowerCase()); return; }
-    sim.addInput({ type: 'deploy', card: card.key });
   }
-  if (sim.army[card.key] <= 1) game.sel = null;
-});
-
-function flash(msg) {
-  const b = $('banner'); b.textContent = msg; b.classList.add('show');
-  clearTimeout(game.bannerTimer); game.bannerTimer = setTimeout(() => b.classList.remove('show'), 2200);
+  const left = sim.cfg.army[card.key] - sentCount(card.key) - 1;
+  playerInput(inp);
+  if (left <= 0 && game.sel === card.key) game.sel = null;
 }
 
-// ---------- layout ----------
-function resize() {
-  const stage = $('stage');
-  const wide = window.innerWidth >= 900;
-  const availW = wide ? Math.max(200, document.getElementById('main').clientWidth - 310) : stage.clientWidth;
-  const availH = wide ? window.innerHeight - 70 : window.innerHeight * 0.62;
-  const cssW = Math.floor(Math.min(availW, availH * W / H));
-  game.T = cssW / W;
-  game.dpr = window.devicePixelRatio || 1;
-  cv.style.width = cssW + 'px'; cv.style.height = (game.T * H) + 'px';
-  cv.width = Math.round(cssW * game.dpr); cv.height = Math.round(game.T * H * game.dpr);
-}
-window.addEventListener('resize', resize);
-// The log follows new lines until the player scrolls up; scrolling back to the bottom resumes it.
-$('log').addEventListener('scroll', e => {
-  const l = e.target; l._follow = l.scrollHeight - l.scrollTop - l.clientHeight < 4;
-});
-
-// ---------- rendering ----------
+// ---------- drawing the raid screen ----------
 function draw(now) {
-  const sim = game.sim, T = game.T;
+  const sim = game.sim;
   ctx.setTransform(game.dpr, 0, 0, game.dpr, 0, 0);
-  ctx.clearRect(0, 0, W * T, H * T);
-  const px = v => (v + 0.5) * T;               // tile coord → pixel centre
-  const font = (k, bold) => `${bold ? '700 ' : ''}${Math.max(9, Math.round(T * k))}px system-ui, sans-serif`;
-  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-
-  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-    const g = GRID[y * W + x];
-    ctx.fillStyle = g === 1 ? '#15171b' : ((x + y) & 1 ? '#4b4f58' : '#474b54');
-    if (g !== 1 && y >= 9) ctx.fillStyle = (x + y) & 1 ? '#53504a' : '#4e4b45';   // dining floor
-    ctx.fillRect(x * T, y * T, T + 0.5, T + 0.5);
-  }
+  ctx.fillStyle = '#15171b'; ctx.fillRect(0, 0, cam.vw, cam.vh);
   if (!sim) return;
-  const pulse = 0.5 + 0.5 * Math.sin(now / 160);
-
-  // entry points
-  const selCard = CARDS.find(c => c.key === game.sel);
-  for (const k in ENTRIES) {
-    const e = ENTRIES[k];
-    ctx.fillStyle = k === 'door' ? '#8a5a2b' : k === 'window' ? '#7fb6d9' : '#7a2e2e';
-    ctx.fillRect(e.x * T + 2, e.y * T + 2, T - 4, T - 4);
-    if (selCard && selCard.entry === k) {
-      ctx.strokeStyle = `rgba(240,180,41,${0.4 + 0.6 * pulse})`; ctx.lineWidth = 3;
-      ctx.beginPath(); ctx.arc(px(e.x), px(e.y), T * (0.9 + 0.4 * pulse), 0, 7); ctx.stroke();
-    }
-  }
-  if (selCard && selCard.entry === 'wall') {
-    ctx.strokeStyle = `rgba(240,180,41,${0.4 + 0.6 * pulse})`; ctx.lineWidth = 3;
-    ctx.strokeRect(T * 0.5, T * 0.5, (W - 1) * T, (H - 1) * T);
-  }
-  // Lantern light (warm tiles) under everything; the Vampire won't step on it
-  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++)
-    if (sim.lit[y * W + x] && GRID[y * W + x] !== 1) { ctx.fillStyle = 'rgba(255,214,120,0.16)'; ctx.fillRect(x * T, y * T, T + 0.5, T + 0.5); }
-
-  // stations
-  for (const st of sim.stations) {
-    const x0 = st.key === 'counter' ? 9 : st.x, w = st.key === 'counter' ? 3 : 1;
-    ctx.fillStyle = '#7d8798';
-    ctx.fillRect(x0 * T + 2, st.y * T + 2, w * T - 4, T - 4);
-    if (st.dis === 'haunt') {                    // haunted: blue with a dashed outline
-      ctx.fillStyle = 'rgba(80,100,210,0.85)'; ctx.fillRect(x0 * T + 2, st.y * T + 2, w * T - 4, T - 4);
-      ctx.strokeStyle = '#dfe6f0'; ctx.lineWidth = 2; ctx.setLineDash([3, 3]);
-      ctx.strokeRect(x0 * T + 4, st.y * T + 4, w * T - 8, T - 8); ctx.setLineDash([]);
-    } else if (st.dis === 'jam') {
-      ctx.fillStyle = 'rgba(150,80,220,0.85)'; ctx.fillRect(x0 * T + 2, st.y * T + 2, w * T - 4, T - 4);
-      ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.beginPath();
-      ctx.moveTo(x0 * T + 6, st.y * T + 6); ctx.lineTo(x0 * T + w * T - 6, st.y * T + T - 6);
-      ctx.moveTo(x0 * T + w * T - 6, st.y * T + 6); ctx.lineTo(x0 * T + 6, st.y * T + T - 6); ctx.stroke();
-    }
-    ctx.fillStyle = '#111'; ctx.font = font(0.36, true);
-    ctx.fillText(st.short, (x0 + w / 2) * T, px(st.y));
-    if (st.dis && st.repair > 0) {
-      ctx.fillStyle = '#000a'; ctx.fillRect(x0 * T + 2, st.y * T + T - 7, w * T - 4, 5);
-      ctx.fillStyle = '#46a758'; ctx.fillRect(x0 * T + 2, st.y * T + T - 7, (w * T - 4) * Math.min(1, st.repair / sim.p.repairJam), 5);
-    }
-  }
-  // locks (gold = full, dark red = picked; T1/T2/T3 = tier) and the Mimic: a real-looking T2 stash until it bites
-  const lockBox = (l, col, label) => {
-    ctx.fillStyle = col; ctx.fillRect(l.x * T + 3, l.y * T + 3, T - 6, T - 6);
-    ctx.fillStyle = '#111'; ctx.font = font(0.34, true); ctx.fillText(label, px(l.x), px(l.y));
-  };
-  for (const l of sim.locks) {
-    if (l.key === 'till') {                      // lock badge on the counter
-      ctx.fillStyle = l.picked ? '#5a2a2a' : '#b8942f'; ctx.fillRect(l.x * T + 2, l.y * T + T * 0.52, T * 0.46, T * 0.44);
-      ctx.fillStyle = l.picked ? '#ddd' : '#111'; ctx.font = font(0.24, true); ctx.fillText('T1', l.x * T + T * 0.25, l.y * T + T * 0.74);
-    } else lockBox(l, l.picked ? '#5a2a2a' : '#b8942f', l.short);
-  }
-  if (sim.mimic) {
-    const m = sim.mimic;
-    if (m.armed) lockBox(m, '#b8942f', m.short);
-    else {                                       // revealed: a red chest with teeth
-      lockBox(m, '#8b1e3f', '');
-      ctx.fillStyle = '#fff'; ctx.beginPath();
-      for (let i = 0; i < 4; i++) {
-        const x = m.x * T + 5 + i * (T - 10) / 4;
-        ctx.moveTo(x, m.y * T + T * 0.45); ctx.lineTo(x + (T - 10) / 8, m.y * T + T * 0.7); ctx.lineTo(x + (T - 10) / 4, m.y * T + T * 0.45);
-      }
-      ctx.fill();
-    }
-  }
-  // Lanterns (dim grey when a Blackout put them out)
-  if (sim.p.lantern > 0) LANTERNS.forEach((l, i) => {
-    const on = sim.lanternOn[i];
-    if (on) { ctx.fillStyle = 'rgba(255,214,120,0.35)'; ctx.beginPath(); ctx.arc(px(l[0]), px(l[1]), T * 0.45, 0, 7); ctx.fill(); }
-    ctx.fillStyle = on ? '#ffd166' : '#555'; ctx.fillRect(px(l[0]) - T * 0.12, px(l[1]) - T * 0.18, T * 0.24, T * 0.34);
-    ctx.strokeStyle = '#111'; ctx.lineWidth = 1; ctx.strokeRect(px(l[0]) - T * 0.12, px(l[1]) - T * 0.18, T * 0.24, T * 0.34);
-  });
-  if (sim.bell.fired) {
-    ctx.fillStyle = sim.tick - sim.bell.at < 60 && pulse > 0.5 ? '#fff' : '#f6e05e';
-    ctx.fillRect(BELL[0] * T + T * 0.2, BELL[1] * T + T * 0.2, T * 0.6, T * 0.6);
-    ctx.fillStyle = '#111'; ctx.font = font(0.34, true); ctx.fillText('Bell', px(BELL[0]), px(BELL[1]));
-  }
-  // dropped Crowd Rush food
-  for (const f of sim.food) { ctx.fillStyle = '#f39c3d'; ctx.beginPath(); ctx.arc(px(f.x) + T * 0.25, px(f.y) + T * 0.25, T * 0.12, 0, 7); ctx.fill(); }
-  // Blackout areas
-  for (const d of sim.dark) {
-    ctx.fillStyle = 'rgba(8,6,24,0.55)'; ctx.strokeStyle = 'rgba(107,91,214,0.9)'; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.arc(px(d.x), px(d.y), d.r * T, 0, 7); ctx.fill(); ctx.stroke();
-  }
-  // customers
-  for (const c of sim.customers) {
-    let col;
-    if (c.tm) col = '#e8c547';
-    else {
-      const f = Math.max(0, Math.min(1, c.patience / c.patience0));
-      const gb = Math.round(40 + 160 * f);
-      col = `rgb(${Math.round(200 + 55 * (1 - f))},${gb},${gb})`;
-    }
-    if (c.state === 'leaving' && !c.tm) col = c.angry ? '#e5484d' : '#8a8d94';
-    ctx.fillStyle = col; ctx.beginPath(); ctx.arc(px(c.x), px(c.y), T * 0.28, 0, 7); ctx.fill();
-    if (c.state === 'pickup') {             // order marker: coffee brown, bread tan, pastry pink
-      ctx.fillStyle = ['', '#6b3f1f', '#d9b26f', '#ff8fc8'][c.item];
-      ctx.fillRect(px(c.x) - T * 0.11, px(c.y) - T * 0.11, T * 0.22, T * 0.22);
-    }
-    if (c.angry) { ctx.fillStyle = '#e5484d'; ctx.font = font(0.5, true); ctx.fillText('☹', px(c.x), px(c.y) - T * 0.6); }
-    if (c.heldBy) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(px(c.x), px(c.y), T * 0.36, 0, 7); ctx.stroke(); }
-  }
-  // Warden Hound: patrol zone, reveal radius, bark / eating bubbles
-  const h = sim.hound;
-  if (h) {
-    ctx.setLineDash([4, 4]); ctx.strokeStyle = 'rgba(176,122,74,0.6)'; ctx.lineWidth = 1.5;
-    ctx.beginPath(); ctx.arc(px(HOUND_HOME[0]), px(HOUND_HOME[1]), sim.p.houndZone * T, 0, 7); ctx.stroke();
-    const busy = h.state === 'food' || h.state === 'eat';
-    ctx.strokeStyle = busy ? 'rgba(136,136,136,0.6)' : 'rgba(127,227,255,0.55)';
-    ctx.beginPath(); ctx.arc(px(h.x), px(h.y), sim.p.houndReveal * T, 0, 7); ctx.stroke(); ctx.setLineDash([]);
-    ctx.fillStyle = '#b07a4a'; ctx.beginPath(); ctx.arc(px(h.x), px(h.y), T * 0.36, 0, 7); ctx.fill();
-    ctx.fillStyle = '#111'; ctx.font = font(0.36, true); ctx.fillText('W', px(h.x), px(h.y));
-    const bubble = (txt, col) => {
-      const bx = px(h.x) + T * 0.5, by = px(h.y) - T * 0.7;
-      ctx.font = font(0.34, true); const tw = ctx.measureText(txt).width + T * 0.3;
-      ctx.fillStyle = col; ctx.fillRect(bx - tw / 2, by - T * 0.25, tw, T * 0.5);
-      ctx.fillStyle = '#111'; ctx.fillText(txt, bx, by + 1);
-    };
-    if (h.state === 'pin' || sim.tick - h.barkAt < 45) bubble('WOOF!', '#fff');
-    else if (h.state === 'eat') bubble('nom', '#f39c3d');
-  }
-  // troublemakers
-  for (const t of sim.tms) {
-    const col = t.kind === 'vamp' ? '#d0314f' : t.kind === 'polt' ? '#dfe6f0' : '#c17bff';
-    const latched = t.kind === 'vamp' && t.latch;
-    const ox = latched ? T * 0.32 : 0, oy = latched ? -T * 0.32 : 0;    // a latched Vampire sits on its staff's shoulder
-    const jx = (t.heldBy ? Math.sin(now / 30) * 2 : 0) + ox;
-    if (sim.inWall(t)) ctx.globalAlpha = 0.5;     // inside a wall: staff can't catch it
-    ctx.fillStyle = col; ctx.beginPath(); ctx.arc(px(t.x) + jx, px(t.y) + oy, T * (latched ? 0.26 : 0.33), 0, 7); ctx.fill();
-    ctx.fillStyle = t.kind === 'vamp' ? '#fff' : '#111'; ctx.font = font(0.36, true);
-    ctx.fillText(t.kind === 'vamp' ? 'V' : t.kind === 'polt' ? 'O' : 'L', px(t.x) + jx, px(t.y) + oy);
-    ctx.globalAlpha = 1;
-    if (t.revealed) { ctx.setLineDash([2, 3]); ctx.strokeStyle = '#7fe3ff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(px(t.x) + jx, px(t.y) + oy, T * 0.46, 0, 7); ctx.stroke(); ctx.setLineDash([]); }
-    if (t.carry) {                       // loot sack: gold once it holds the vault loot
-      const sx = px(t.x) + jx + T * 0.3, sy = px(t.y) - T * 0.3, r = T * (t.vaultLoot ? 0.24 : 0.17);
-      ctx.fillStyle = t.vaultLoot ? '#f0b429' : '#a8834a'; ctx.strokeStyle = '#111'; ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.arc(sx, sy, r, 0, 7); ctx.fill(); ctx.stroke();
-      ctx.fillStyle = '#111'; ctx.font = font(t.vaultLoot ? 0.3 : 0.22, true); ctx.fillText('$', sx, sy + 1);
-    }
-    if (sim.tick < t.stunUntil) {        // held by the Hound (brown) or the Mimic (red)
-      const pinned = h && h.state === 'pin' && h.target === t;
-      ctx.strokeStyle = pinned ? '#b07a4a' : '#e5484d'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(px(t.x), px(t.y), T * 0.44, 0, 7); ctx.stroke();
-    }
-    if ((t.state === 'pick' || t.state === 'haunt') && t.prog > 0) {
-      const need = t.state === 'pick' ? sim.p['lockT' + t.target.tier] : sim.p.hauntTime;
-      ctx.strokeStyle = '#fff'; ctx.lineWidth = 3; ctx.beginPath();
-      ctx.arc(px(t.x), px(t.y), T * 0.48, -1.57, -1.57 + 6.283 * Math.min(1, t.prog / need)); ctx.stroke();
-      if (t.state === 'pick') { ctx.fillStyle = '#fff'; ctx.font = font(0.28, true); ctx.fillText('T' + t.target.tier, px(t.x), px(t.y) - T * 0.7); }
-    }
-  }
-  // staff (Energy bar under each one that isn't full; ⚡ = Neuroshock stun, zz = fainted)
-  for (const s of sim.staff) {
-    const t = s.task, stunned = sim.tick < s.stunUntil, fainted = sim.tick < s.faintUntil;
-    if (t && t.kind === 'guard' && !t.holding) {
-      ctx.strokeStyle = t.target.tm ? '#e8c547' : '#ff5c5c'; ctx.setLineDash([3, 3]);   // yellow = going to check a crowd member
-      ctx.lineWidth = 1.5; ctx.beginPath();
-      ctx.moveTo(px(s.x), px(s.y)); ctx.lineTo(px(t.target.x), px(t.target.y)); ctx.stroke(); ctx.setLineDash([]);
-    }
-    ctx.fillStyle = fainted ? '#5b6b60' : '#3fbf6a'; ctx.beginPath(); ctx.arc(px(s.x), px(s.y), T * 0.38, 0, 7); ctx.fill();
-    if (s.latchedBy) { ctx.strokeStyle = '#d0314f'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(px(s.x), px(s.y), T * 0.44, 0, 7); ctx.stroke(); }
-    if (stunned) { ctx.strokeStyle = '#7fe3ff'; ctx.lineWidth = 3; ctx.setLineDash([2, 2]); ctx.beginPath(); ctx.arc(px(s.x), px(s.y), T * 0.46, 0, 7); ctx.stroke(); ctx.setLineDash([]); }
-    ctx.fillStyle = '#0b2614'; ctx.font = font(0.4, true);
-    ctx.fillText(staffLetter(s), px(s.x), px(s.y));
-    if (t && t.kind === 'serve' && t.step === 'deliver') { ctx.fillStyle = '#fff'; ctx.fillRect(px(s.x) + T * 0.2, px(s.y) - T * 0.45, T * 0.22, T * 0.22); }
-    if (stunned) { ctx.fillStyle = '#7fe3ff'; ctx.font = font(0.42, true); ctx.fillText('⚡', px(s.x) - T * 0.45, px(s.y) - T * 0.45); }
-    if (fainted) { ctx.fillStyle = '#cfd8dc'; ctx.font = font(0.32, true); ctx.fillText('zz', px(s.x) + T * 0.42, px(s.y) - T * 0.42); }
-    if (s.energy < sim.p.energyMax) {
-      const f = s.energy / sim.p.energyMax, bw = T * 0.9, bx = px(s.x) - bw / 2, by = px(s.y) + T * 0.42, bh = Math.max(4, T * 0.14);
-      ctx.fillStyle = '#000c'; ctx.fillRect(bx - 1, by - 1, bw + 2, bh + 2);
-      ctx.fillStyle = f > 0.5 ? '#46a758' : f > 0.2 ? '#f0b429' : '#e5484d'; ctx.fillRect(bx, by, bw * f, bh);
-    }
-    if (t && t.kind === 'guard' && t.holding && t.target.tm && sim.p.crowdCheck > 0) {   // checking a crowd member
-      ctx.strokeStyle = '#e8c547'; ctx.lineWidth = 3; ctx.beginPath();
-      ctx.arc(px(s.x), px(s.y), T * 0.48, -1.57, -1.57 + 6.283 * Math.min(1, t.hold / sim.p.crowdCheck)); ctx.stroke();
-      const bx = px(s.x) + T * 0.45, by = px(s.y) - T * 0.6;
-      ctx.fillStyle = '#e8c547'; ctx.beginPath(); ctx.arc(bx, by, T * 0.26, 0, 7); ctx.fill();
-      ctx.fillStyle = '#111'; ctx.font = font(0.36, true); ctx.fillText('?', bx, by + 1);
-    }
-  }
-  // red "!" over every unanswered problem (why the Overwhelm bar is filling)
-  for (const u of sim.unanswered) {
-    const st = !u.kind;                  // stations have no kind; troublemakers do
-    const bx = px(u.x) + (st ? 0 : T * 0.42), by = px(u.y) - T * (st ? 0.62 : 0.55), r = T * (0.24 + 0.04 * pulse);
-    ctx.fillStyle = '#e5484d'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5;
-    ctx.beginPath(); ctx.arc(bx, by, r, 0, 7); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = '#fff'; ctx.font = font(0.36, true); ctx.fillText('!', bx, by + 1);
-  }
-  // fx
-  for (const f of sim.fx) {
-    ctx.fillStyle = '#e5484d'; ctx.font = font(0.5, true);
-    if (f.kind === 'rep') {               // bad-mood walk-out at closing: rep loss floats up from the door
-      const k = 1 - (f.until - sim.tick) / 45;
-      ctx.strokeStyle = '#111'; ctx.lineWidth = 3; ctx.strokeText(f.txt, px(f.x), px(f.y) - T * (0.6 + 1.2 * k));
-      ctx.fillText(f.txt, px(f.x), px(f.y) - T * (0.6 + 1.2 * k));
-    } else if (f.kind === 'mimic') {      // the Mimic bit a Locksmith
-      ctx.font = font(0.36, true); ctx.strokeStyle = '#111'; ctx.lineWidth = 3;
-      ctx.strokeText('CHOMP!', px(f.x), px(f.y) - T * 0.62); ctx.fillText('CHOMP!', px(f.x), px(f.y) - T * 0.62);
-    } else if (f.kind === 'shock') {      // Neuroshock: a cyan flash over the circle
-      ctx.strokeStyle = '#7fe3ff'; ctx.lineWidth = 3; ctx.fillStyle = 'rgba(127,227,255,0.18)';
-      ctx.beginPath(); ctx.arc(px(f.x), px(f.y), f.r * T, 0, 7); ctx.fill(); ctx.stroke();
-    } else ctx.fillText(f.kind === 'turn' ? '✕' : '☹', px(f.x), px(f.y) - T * 0.6);
-  }
-  // overlay text for scout / replay
-  if (sim.phase === 'scout' || game.replay || game.paused) {
-    ctx.fillStyle = '#000a'; ctx.fillRect(0, 0, W * T, T * 0.9);
-    ctx.fillStyle = '#fff'; ctx.font = font(0.45, true);
-    ctx.fillText(game.paused ? 'PAUSED' : game.replay ? 'REPLAY' : 'SCOUTING: traps are hidden', W * T / 2, T * 0.45);
-  }
+  const st = tut.active, want = st && st.until && st.until.sent ? targetTile(st.point, sim) : null;
+  drawWorld(ctx, sim, view(), { now, sel: game.sel, want, obs: game.obs, showOw: game.def.goals.includes('chaos') });
 }
-
-function updateHud() {
+let coachKey = '';
+function updateHud(now) {
   const sim = game.sim; if (!sim) return;
   const p = sim.p;
   let label;
-  if (sim.phase === 'scout') label = 'Scout ' + Math.ceil(p.scoutTime - sim.tick * DT) + 's';
+  if (sim.phase === 'scout') label = '🔍 ' + Math.ceil(p.scoutTime - sim.tick * DT);
   else if (sim.phase === 'siege') {
     const left = Math.max(0, p.siegeTime - sim.siegeTick * DT);
-    label = 'Siege ' + Math.floor(left / 60) + ':' + String(Math.floor(left % 60)).padStart(2, '0');
-  } else label = sim.phase === 'settle' ? 'Closing…' : 'Over';
-  $('phase').textContent = label;
-  const rb = $('repbar');
-  rb.querySelector('i').style.width = Math.max(0, sim.rep) + '%';
-  rb.querySelector('i').style.background = sim.rep < 25 ? 'var(--bad)' : sim.rep < 50 ? 'var(--accent)' : 'var(--good)';
-  rb.querySelector('span').textContent = sim.stars.rep ? 'Café reputation 0: KNOCKED OUT' : 'Café reputation ' + Math.max(0, sim.rep).toFixed(0) + '%';
-  $('stRep').classList.toggle('on', sim.stars.rep);
-  $('stVault').classList.toggle('on', sim.stars.vault);
-  $('stChaos').classList.toggle('on', sim.stars.chaos);
-  const ow = $('owbar');
-  ow.querySelector('i').style.width = Math.min(100, sim.overwhelm / p.overwhelmMax * 100) + '%';
-  ow.classList.toggle('filling', sim.owFilling && !sim.stars.chaos);
-  ow.querySelector('span').textContent = sim.stars.chaos ? 'OVERWHELMED' :
-    'Overwhelm ' + Math.floor(sim.overwhelm) + '/' + p.overwhelmMax + (sim.owFilling ? ' ▲' : '');
-  ow.title = 'Fills ' + p.fillRate + '/s while any problem is unanswered (red !), drains ' + p.drainRate + '/s otherwise';
-  $('stChaos').title = 'Chaos: Overwhelm bar reaches ' + p.overwhelmMax;
+    label = Math.floor(left / 60) + ':' + String(Math.floor(left % 60)).padStart(2, '0');
+  } else label = sim.phase === 'settle' ? 'Closing' : 'Over';
+  $('phase').textContent = (game.replay ? '▶ ' : '') + label;
+  document.querySelectorAll('#goals .goal').forEach(el => {
+    const g = el.dataset.g, bar = el.querySelector('.gbar i');
+    el.classList.toggle('won', !!sim.stars[g]);
+    if (g === 'rep') { bar.style.width = Math.max(0, sim.rep) + '%'; bar.style.background = sim.rep < 25 ? 'var(--bad)' : sim.rep < 50 ? 'var(--accent)' : 'var(--good)'; }
+    if (g === 'chaos') { bar.style.width = Math.min(100, sim.overwhelm / p.overwhelmMax * 100) + '%'; el.classList.toggle('filling', sim.owFilling && !sim.stars.chaos); }
+  });
   const m = sim.mischief;
   $('mispips').querySelectorAll('i').forEach((pip, i) => {
     pip.classList.toggle('on', i < Math.floor(m));
@@ -1857,57 +2385,116 @@ function updateHud() {
     el.classList.toggle('off', sim.phase !== 'siege' || n <= 0 || m < p[c.cost] || !!game.replay);
     el.classList.toggle('sel', game.sel === c.key);
   });
-  $('btnSiege').style.display = sim.phase === 'scout' && !game.replay ? '' : 'none';
-  $('btnEnd').style.display = sim.phase === 'siege' && !game.replay ? '' : 'none';
-  $('btnPause').textContent = game.paused ? 'Resume' : 'Pause';
+  $('btnSiege').style.display = sim.phase === 'scout' && !game.replay ? 'block' : 'none';
+  $('btnPause').textContent = game.paused ? '▶' : '⏸';
   $('btnSpeed').textContent = game.speed + '×';
-  // Full raid log, oldest at the top, newest at the bottom. It follows new lines while scrolled
-  // to the bottom; scrolled up to read older lines, it stays put.
-  const logEl = $('log');
-  if (logEl._sim !== sim) { logEl._sim = sim; logEl._n = 0; logEl.textContent = ''; logEl._follow = true; }
-  if (logEl._n < sim.log.length) {
-    const frag = document.createDocumentFragment();
-    for (let i = logEl._n; i < sim.log.length; i++) {
-      const d = document.createElement('div');
-      d.textContent = logTime(sim, sim.log[i].t) + ' · ' + sim.log[i].msg;
-      frag.appendChild(d);
+  $('btnEnd').textContent = now < game.endArmed ? 'End?' : '✕';
+  $('btnEnd').style.width = now < game.endArmed ? '44px' : '';
+
+  // coach line and pointer: the active step, else the current tip
+  const st = tut.active, tip = !st && tut.tip && now < tut.tipUntil ? tut.tip : null, cur = st || tip;
+  const coach = $('coach'), ptr = $('ptr');
+  let pos = null;
+  if (cur && cur.point) {
+    const q = cur.point; let el = null;
+    if (q.card) el = document.querySelector('#cards .card[data-k="' + q.card + '"]');
+    else if (q.btn === 'siege') el = $('btnSiege');
+    else if (q.hud === 'mis') el = $('mis');
+    else if (q.hud) el = document.querySelector('#goals .goal[data-g="' + q.hud + '"]');
+    if (el) { const r = el.getBoundingClientRect(); if (r.width) pos = [r.left + r.width / 2, r.top + r.height / 2]; }
+    else {
+      const t = targetTile(q, sim);
+      if (t) {
+        const r = cv.getBoundingClientRect(), v = view();
+        pos = [Math.max(r.left + 20, Math.min(r.right - 20, r.left + (t[0] + 0.5) * v.T + v.ox)),
+          Math.max(r.top + 20, Math.min(r.bottom - 20, r.top + (t[1] + 0.5) * v.T + v.oy))];
+      }
     }
-    logEl.append(frag);
-    logEl._n = sim.log.length;
   }
-  if (logEl._follow) logEl.scrollTop = logEl.scrollHeight;
+  const key = cur ? cur.say + (st ? '|s' : '|t') : '';
+  if (key !== coachKey) {
+    coachKey = key;
+    coach.classList.toggle('show', !!cur); coach.classList.toggle('tip', !!tip);
+    if (cur) coach.innerHTML = cur.say + (st && st.until === 'tap' ? '<small>Tap to continue ▸</small>' : '');
+  }
+  if (cur) {
+    const r = $('stage').getBoundingClientRect();
+    coach.classList.toggle('low', !!pos && pos[1] > r.top && pos[1] < r.top + r.height * 0.45);
+  }
+  ptr.classList.toggle('show', !!pos && !document.querySelector('.overlay.show'));
+  if (pos) { ptr.style.left = pos[0] + 'px'; ptr.style.top = pos[1] + 'px'; ptr.classList.toggle('up', pos[1] > window.innerHeight - 96); }
+
   if ($('debug').classList.contains('show')) {
     $('dbgInfo').textContent = `seed ${sim.cfg.seed}  tick ${sim.tick}  phase ${sim.phase}\n` +
-      `queue ${sim.queue.length}  customers ${sim.customers.length}  served ${sim.served}  unhappy ${sim.unhappy}  turned ${sim.turned}\n` +
+      `queue ${sim.queue.length}  table line ${sim.waitLine.length}  dirty ${sim.tables.filter(t => t.dirty).length}/${sim.tables.length}  customers ${sim.customers.length}  served ${sim.served}  unhappy ${sim.unhappy}  turned ${sim.turned}\n` +
       `inputs ${sim.inputs.length}  live hash ${sim.tick % 15 === 0 || !game._h ? (game._h = sim.hash()) : game._h}`;
   }
 }
 
+// ---------- result: one plain "why" line per missed goal ----------
+function whyLine(goal, sim, obs) {
+  const E = k => obs.events.filter(e => e.kind === k);
+  if (goal === 'vault') {
+    if (!sim.cfg.army.lock) return 'You had no 🥷 Locksmith. Only a Locksmith can open the vault.';
+    if (!sentCount('lock')) return 'You never sent your 🥷 Locksmith. Only it can open the vault.';
+    const caught = E('caught').filter(e => e.unit === 'lock'), last = caught[caught.length - 1];
+    if (E('mimic').length && last) return 'One 📦 stash was a 👹 Mimic. It held your Locksmith until the staff threw it out.';
+    if (last && E('pinned').length) return 'The 🐕 Hound pinned your Locksmith and the staff threw it out. Food dropped by 👥 Crowd Rush distracts the Hound.';
+    if (last && last.vault) return 'The staff caught your Locksmith on the way out with the vault loot. Keep them busy until it is back at the 🪟.';
+    if (last) return 'The staff caught your Locksmith before it opened the vault. Send it while they are busy fixing things.';
+    if (E('mimic').length) return 'One 📦 stash was a 👹 Mimic. It ate the loot your Locksmith was carrying.';
+    if (!sim.locks.find(l => l.key === 'vault').picked) return 'The raid ended before your Locksmith reached the vault. Send it earlier.';
+    return 'The raid ended before your Locksmith got back out the 🪟 window.';
+  }
+  if (goal === 'chaos') {
+    if (!(E('haunted').length + E('jammed').length + E('fainted').length))
+      return 'Nothing broke. Haunt stations with a 👻 or make staff faint with a 🧛.';
+    return 'The staff kept up: the ❗ bar reached ' + Math.floor(sim.owPeak) + ' of ' + sim.p.overwhelmMax +
+      '. Break two things at the same moment, so one has nobody fixing it.';
+  }
+  if (!sim.unhappy && !sim.turned) return 'No customer left angry. Clog the queue with 👥 Crowd Rush' + (sim.cfg.army.hog ? ', fill the tables with 🪑 Table Hoggers' : '') + ', or break the stations they are waiting for.';
+  return 'Reputation only fell to ' + Math.max(0, sim.minRep).toFixed(0) + '%. More customers have to give up: keep the queue clogged, the tables taken and the stations broken for longer.';
+}
 function showResult() {
-  const sim = game.sim, r = sim.summary();
-  game.resultShown = true;
+  const sim = game.sim, r = sim.summary(), def = game.def, goals = def.goals;
+  game.resultShown = true; tut.active = null; tut.tip = null;
+  const got = goals.filter(g => sim.stars[g]).length;
+  // Guided raid: won when its new goal (the last one) is won. Café: at least one star.
+  const won = def.guided ? !!sim.stars[goals[goals.length - 1]] : got > 0;
   let verify = '';
   if (game.replay) {
     const ok = r.hash === game.replay.hash;
-    verify = `<p class="${ok ? 'ok' : 'no'}"><b>Replay ${ok ? 'matches ✓' : 'DIFFERS ✗'}</b> (original ${game.replay.hash}, replay ${r.hash})</p>`;
+    verify = `<span class="${ok ? 'ok' : 'no'}"><b>Replay ${ok ? 'matches ✓' : 'DIFFERS ✗'}</b></span> (original ${game.replay.hash}, replay ${r.hash})<br>`;
   } else {
-    game.lastRun = { cfg: sim.cfg, inputs: sim.inputs.map(i => Object.assign({}, i)), hash: r.hash, level: game.level };
+    game.lastRun = { cfg: sim.cfg, inputs: sim.inputs.map(i => Object.assign({}, i)), hash: r.hash, def };
     try { window.__lastRun = game.lastRun; } catch (e) { /* ignore */ }
+    if (!def.custom) {
+      const prev = prog.raids[def.id] || { won: false, stars: 0 };
+      prog.raids[def.id] = { won: prev.won || won, stars: Math.max(prev.stars, got) };
+      saveProg();
+    }
   }
-  $('resTitle').textContent = game.replay ? 'Replay finished' : (r.stars ? r.stars + '-star raid' : 'Raid failed (0 stars)');
-  $('resStars').innerHTML = '★'.repeat(r.stars).replace(/★/g, '<span style="color:var(--accent)">★</span>') + '☆'.repeat(3 - r.stars);
-  const mark = b => b ? '<span class="ok">✓</span>' : '<span class="no">✗</span>';
-  $('resBody').innerHTML = `${verify}
-    <p>${mark(r.starList.rep)} Café reputation knocked to 0 (lowest ${Math.max(0, r.minRep).toFixed(0)}%)<br>
-    ${mark(r.starList.vault)} Vault robbed (a Locksmith escaped with the tier-3 loot)<br>
-    ${mark(r.starList.chaos)} Staff overwhelmed (bar peak ${Math.floor(sim.owPeak)} / ${sim.p.overwhelmMax})</p>
-    <p class="note">${r.reason} · siege ${r.siegeSec}s · served ${r.served} · left unhappy ${r.unhappy}${r.badExits ? ' (' + r.badExits + ' at closing)' : ''} ·
-      turned away ${r.turned} · troublemakers thrown out ${r.ejected} · stolen ${r.stolen}<br>
-      seed ${sim.cfg.seed} · ${sim.inputs.length} inputs · final hash <b>${r.hash}</b></p>`;
+  $('resTitle').textContent = game.replay ? 'Replay finished' : won ? (got === goals.length ? 'Raid won!' : 'Raid won: ' + got + ' of ' + goals.length + ' stars') : 'Raid failed';
+  $('resStars').innerHTML = '<span style="color:var(--accent)">' + '★'.repeat(got) + '</span>' + '☆'.repeat(goals.length - got);
+  $('resGoals').innerHTML = goals.map(g => sim.stars[g]
+    ? `<div class="rg"><span class="ok">✓</span><b>${GOALS[g].e} ${GOALS[g].ok}</b></div>`
+    : `<div class="rg"><span class="no">✗</span><b>${GOALS[g].e} ${GOALS[g].no}</b><div class="why">${whyLine(g, sim, game.obs)}</div></div>`).join('');
+  $('resNote').innerHTML = DEBUG || SHOT ? `${verify}${r.reason} · siege ${r.siegeSec}s · served ${r.served} · left unhappy ${r.unhappy} · turned away ${r.turned} ·
+    thrown out ${r.ejected} · stolen ${r.stolen} · seed ${sim.cfg.seed} · ${sim.inputs.length} inputs · final hash <b>${r.hash}</b>` : '';
+  const idx = RAIDS.indexOf(def), hasNext = won && !game.replay && idx >= 0 && idx + 1 < RAIDS.length;
+  $('btnNext').style.display = hasNext ? '' : 'none';
+  $('btnRetry').classList.toggle('primary', !hasNext);
+  $('btnRetry').textContent = won ? 'Play again' : 'Try again';
   $('btnReplay').disabled = !game.lastRun;
   $('btnCopy').textContent = 'Copy results'; $('copyBox').hidden = true;
   $('result').classList.add('show');
 }
+$('btnRetry').onclick = () => startRaid(game.def);
+$('btnNext').onclick = () => { const i = RAIDS.indexOf(game.def) + 1; $('result').classList.remove('show'); openRaid(i); };
+$('btnResHome').onclick = goHome;
+$('btnReplay').onclick = () => { if (game.lastRun) startRaid(game.lastRun.def, game.lastRun); };
+$('btnNewSeed').onclick = () => startRaid(Object.assign({}, game.def, { seed: Math.floor(Math.random() * 1e6), custom: true, steps: null, guided: false }));
+$('btnToSetup').onclick = () => showSetup();
 
 // Short plain-text summary of the finished raid, for pasting into a chat.
 function resultsText() {
@@ -1915,7 +2502,7 @@ function resultsText() {
   const army = CARDS.filter(c => sim.cfg.army[c.key] > 0).map(c => c.name + ' ×' + sim.cfg.army[c.key]).join(', ');
   return [
     'Hexbrew raid prototype · build ' + BUILD + (game.replay ? ' · replay' : ''),
-    'Café: ' + (LEVELS[game.level] || LEVELS[0]).name,
+    'Raid: ' + (game.def.num ? game.def.num + ' · ' : '') + game.def.title + ' (' + (LEVELS[game.def.cafe] || LEVELS[0]).name + ')',
     'Army: ' + (army || 'none'),
     'Seed: ' + sim.cfg.seed,
     'Stars: ' + r.stars + ' of 3 (reputation ' + yn(r.starList.rep) + ', vault ' + yn(r.starList.vault) + ', chaos ' + yn(r.starList.chaos) + ')',
@@ -1938,13 +2525,88 @@ $('btnCopy').onclick = () => {
   catch (e) { fallback(); }
 };
 
-// ---------- how to play ----------
-const GUIDE_SEEN_KEY = 'hexbrew-guide-seen-v1';
-const guideState = { from: null, pausedByUs: false };
-const fmtSec = n => n + ' s';
+// ---------- level select ----------
+function buildHome() {
+  const box = $('levelList'); box.innerHTML = '';
+  const nextI = RAIDS.findIndex((r, i) => !isWon(i));
+  let grid = null, group = '';
+  RAIDS.forEach((r, i) => {
+    const g = r.guided ? 'Learn the ropes' : 'Cafés';
+    if (g !== group) {
+      group = g;
+      const h = document.createElement('h3'); h.textContent = g; box.appendChild(h);
+      grid = document.createElement('div'); grid.className = 'lvgrid'; box.appendChild(grid);
+    }
+    const open = isOpen(i), pr = prog.raids[r.id], n = r.goals.length, got = pr ? pr.stars : 0;
+    const b = document.createElement('button');
+    b.className = 'lv' + (open ? '' : ' locked') + (i === nextI ? ' next' : '');
+    b.innerHTML = `<span class="n">${open ? r.num : '🔒'}</span><b>${r.title}</b><small>${r.sub}</small>
+      <span class="s"><i>${'★'.repeat(got)}</i>${'☆'.repeat(n - got)}</span>`;
+    b.onclick = () => openRaid(i);
+    grid.appendChild(b);
+  });
+}
+
+// ---------- new-card popup with a live demo ----------
+const demo = { def: null, sim: null, obs: null, i: 0, acc: 0, cx: W / 2, cy: H / 2, cv: $('demoCv'), ctx: $('demoCv').getContext('2d'), then: null };
+function demoReset() {
+  const d = demo.def;
+  demo.sim = new Sim({ seed: d.seed, params: Object.assign({}, DEFAULTS, LEVELS[d.cafe].p, d.p), army: d.army, prio: LEVELS[d.cafe].prio });
+  for (let k = 0; k < Math.round((d.warm || 8) / DT); k++) demo.sim.step();      // let a few customers walk in first
+  demo.sim.addInput({ type: 'siege' }); demo.sim.step();
+  demo.obs = newObs(demo.sim); observe(demo.sim, demo.obs); demo.obs.outs.length = 0;
+  demo.i = 0; demo.acc = 0;
+}
+function demoStep() {
+  const d = demo.def, sim = demo.sim;
+  while (demo.i < d.script.length && sim.siegeTick * DT >= d.script[demo.i].t) {
+    const s = d.script[demo.i++], inp = { type: 'deploy', card: s.card };
+    const t = targetTile(s.at, sim);
+    if (t) { inp.x = t[0]; inp.y = t[1]; }
+    sim.addInput(inp);
+  }
+  sim.step(); observe(sim, demo.obs);
+  if (sim.siegeTick * DT >= d.secs || sim.phase !== 'siege') demoReset();
+}
+function demoFrame(dt, now) {
+  const d = demo.def; if (!d) return;
+  demo.acc += dt * d.speed;
+  let n = 0;
+  while (demo.acc >= DT && n < 60) { demoStep(); demo.acc -= DT; n++; }
+  const w = demo.cv.clientWidth, h = demo.cv.clientHeight, dpr = window.devicePixelRatio || 1;
+  if (!w || !h) return;
+  if (demo.cv.width !== Math.round(w * dpr)) { demo.cv.width = Math.round(w * dpr); demo.cv.height = Math.round(h * dpr); }
+  const T = w / d.span, f = targetTile(d.focus, demo.sim) || targetTile(d.rest, demo.sim);
+  if (f) { const k = Math.min(1, dt * 5); demo.cx += (f[0] + 0.5 - demo.cx) * k; demo.cy += (f[1] + 0.5 - demo.cy) * k; }
+  const hw = w / 2 / T, hh = h / 2 / T;
+  const cx = Math.max(hw, Math.min(W - hw, demo.cx)), cy = Math.max(hh, Math.min(H - hh, demo.cy));
+  demo.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  demo.ctx.fillStyle = '#15171b'; demo.ctx.fillRect(0, 0, w, h);
+  drawWorld(demo.ctx, demo.sim, { T, ox: w / 2 - cx * T, oy: h / 2 - cy * T, w }, { now, obs: demo.obs, showOw: true });
+}
+function openPopup(key, then) {
+  const c = CARDS.find(c => c.key === key);
+  $('popName').textContent = EMO.card[key] + ' ' + c.name;
+  $('popDoes').textContent = CARD_INFO[key];
+  $('popMeta').textContent = 'Costs ' + P[c.cost] + ' ✨ Mischief · ' + (c.entry ? 'enters by: ' + entryLabel(c).toLowerCase() : 'cast anywhere');
+  demo.def = DEMOS[key]; demo.then = then || null;
+  demoReset();
+  const f = targetTile(demo.def.focus, demo.sim) || targetTile(demo.def.rest, demo.sim) || [W / 2, H / 2];
+  demo.cx = f[0] + 0.5; demo.cy = f[1] + 0.5;
+  $('popup').classList.add('show');
+  $('popOk').onclick = () => {
+    $('popup').classList.remove('show'); demo.def = null;
+    prog.seen[key] = 1; saveProg();
+    if (demo.then) demo.then();
+  };
+}
+
+// ---------- how to play (the long guide: reference only, behind "?") ----------
+const guideState = { pausedByUs: false };
+const fmtSec = n => n + ' s';
 const GUIDE_FMT = {
   s: fmtSec,
-  dur: n => n >= 60 && n % 60 === 0 ? (n / 60) + ' min' : fmtSec(n),
+  dur: n => n >= 60 && n % 60 === 0 ? (n / 60) + ' min' : fmtSec(n),
   speed: n => n === 2 ? 'half speed' : Math.round(100 / n) + '% speed',     // off-role work takes n× as long
 };
 // Fills every [data-p] in the guide from the current params (P: PARAM_DEFS defaults plus saved debug values).
@@ -1956,32 +2618,82 @@ function fillGuide() {
     el.textContent = f ? f(v) : String(v);
   });
 }
-function showGuide(from) {
-  guideState.from = from;
-  // opened from the controls mid-raid: hold the raid while it is read
-  if (from === 'raid' && game.sim && game.sim.phase !== 'over' && !game.paused) { game.paused = true; guideState.pausedByUs = true; }
+function showGuide() {
+  // opened mid-raid: hold the raid while it is read
+  if (game.screen === 'raid' && game.sim && game.sim.phase !== 'over' && !game.paused) { game.paused = true; guideState.pausedByUs = true; }
   fillGuide();
   const g = $('guide'); g.classList.add('show'); g.scrollTop = 0;
-  $('gdPlay').focus({ preventScroll: true });
 }
-function hideGuide(toSetup) {
+function hideGuide() {
   $('guide').classList.remove('show');
-  store.set(GUIDE_SEEN_KEY, 1);
-  if (toSetup || guideState.from === 'first') showSetup();
-  else if (guideState.pausedByUs) game.paused = false;
-  guideState.from = null; guideState.pausedByUs = false;
+  if (guideState.pausedByUs) game.paused = false;
+  guideState.pausedByUs = false;
 }
-$('btnGuide').onclick = () => showGuide('raid');
-$('btnGuideSetup').onclick = () => showGuide('setup');
-$('gdPlay').onclick = () => hideGuide(true);
-$('gdClose').onclick = () => hideGuide(false);
-window.addEventListener('keydown', e => { if (e.key === 'Escape' && $('guide').classList.contains('show')) hideGuide(false); });
+$('btnGuide').onclick = showGuide;
+$('btnHelpHome').onclick = showGuide;
+$('btnGuideSetup').onclick = showGuide;
+$('gdPlay').onclick = hideGuide;
+$('gdClose').onclick = hideGuide;
+window.addEventListener('keydown', e => { if (e.key === 'Escape' && $('guide').classList.contains('show')) hideGuide(); });
 
-// The Debug button is for tuning only: it shows up on the ?debug=1 link.
-$('btnDebug').hidden = new URLSearchParams(location.search).get('debug') !== '1';
-$('buildStamp').textContent = 'Build ' + BUILD;
-
-// ---------- debug sliders ----------
+// ---------- ?debug=1: the old Setup sheet (any level, army, staff, seed) and the tuning sliders ----------
+function buildSetup() {
+  const rows = $('armyRows'); rows.innerHTML = '';
+  for (const c of CARDS) {
+    const r = document.createElement('div'); r.className = 'row';
+    r.innerHTML = `<span>${EMO.card[c.key]}</span>
+      <span class="grow">${c.name} <span class="note">space ${P[c.space]} · cost ${P[c.cost]}${c.entry ? ' · ' + entryLabel(c) : ' · spell'}</span></span>
+      <span class="stepper"><button data-k="${c.key}" data-d="-1">−</button><span id="ac_${c.key}"></span><button data-k="${c.key}" data-d="1">+</button></span>`;
+    rows.appendChild(r);
+  }
+  rows.onclick = e => {
+    const b = e.target.closest('button'); if (!b) return;
+    const k = b.dataset.k, d = +b.dataset.d;
+    const next = Object.assign({}, setup.army); next[k] = Math.max(0, next[k] + d);
+    if (d > 0 && armySpace(next) > P.armyCap) return;
+    setup.army = next; refreshSetup();
+  };
+  const ls = $('levelSel'); ls.innerHTML = '';
+  LEVELS.forEach((L, i) => { const o = document.createElement('option'); o.value = i; o.textContent = L.name; ls.appendChild(o); });
+  ls.onchange = () => { setup.level = +ls.value; setup.prio = LEVELS[setup.level].prio.slice(); refreshSetup(); };
+  const sr = $('staffRows'); sr.innerHTML = '';
+  for (let i = 0; i < STAFF_START.length; i++) {
+    const r = document.createElement('div'); r.className = 'row';
+    r.innerHTML = `<span class="grow">Staff ${i + 1}</span><select data-i="${i}">
+      <option value="serve">Serve first</option><option value="fix">Fix first</option><option value="guard">Guard first</option>${i ? '<option value="">(none)</option>' : ''}</select>`;
+    sr.appendChild(r);
+  }
+  sr.onchange = () => {            // the staff list is every row that isn't "(none)"
+    setup.prio = [...sr.querySelectorAll('select')].map(s => s.value).filter(Boolean); refreshSetup();
+  };
+  refreshSetup();
+}
+function refreshSetup() {
+  // clamp the army if capacity or space changed in the debug panel
+  while (armySpace(setup.army) > P.armyCap) {
+    const k = CARDS.map(c => c.key).reverse().find(k => setup.army[k] > 0);
+    if (!k) break; setup.army[k]--;
+  }
+  for (const c of CARDS) $('ac_' + c.key).textContent = setup.army[c.key];
+  $('armySpace').textContent = `(${armySpace(setup.army)} / ${P.armyCap} space)`;
+  document.querySelectorAll('#staffRows select').forEach((s, i) => { s.value = setup.prio[i] || ''; });
+  $('seedIn').value = setup.seed;
+  $('levelSel').value = setup.level;
+  const lp = Object.assign({}, P, LEVELS[setup.level].p);
+  $('levelNote').textContent = `${lp.tables} tables · take-out customer every ${lp.arrival} s · dine-in every ${lp.dineArrival} s. Not measured with bots yet (service sim v2).`;
+  store.set('hexbrew-raid-setup-v12', setup);
+}
+const customDef = () => ({ id: 'custom', custom: true, title: 'Custom raid', cafe: setup.level, seed: setup.seed,
+  army: Object.assign({}, setup.army), prio: setup.prio.slice(), goals: ALL_GOALS });
+$('seedRand').onclick = () => { setup.seed = Math.floor(Math.random() * 1e6); refreshSetup(); };
+$('seedIn').onchange = () => { setup.seed = Math.max(0, Math.floor(+$('seedIn').value || 0)); refreshSetup(); };
+$('btnStart').onclick = () => { setup.seed = Math.max(0, Math.floor(+$('seedIn').value || 0)); refreshSetup(); startRaid(customDef()); };
+function showSetup() { hideOverlays(); buildSetup(); $('setup').classList.add('show'); }
+$('btnSetup').onclick = showSetup;
+$('btnDebug').onclick = () => { buildSliders(); $('debug').classList.add('show'); };
+$('dbgClose').onclick = () => $('debug').classList.remove('show');
+$('dbgRestart').onclick = () => { $('debug').classList.remove('show'); if (game.def) startRaid(game.def); };
+$('btnResetProg').onclick = () => { prog.raids = {}; prog.seen = {}; saveProg(); buildHome(); };
 function buildSliders() {
   const box = $('sliders'); box.innerHTML = '';
   let group = '';
@@ -1991,38 +2703,83 @@ function buildSliders() {
     d.innerHTML = `<span>${label}${P[k] !== def ? ' <span style="color:var(--accent)">•</span>' : ''}</span><output>${P[k]}</output>
       <input type="range" min="${min}" max="${max}" step="${step}" value="${P[k]}">`;
     const inp = d.querySelector('input'), out = d.querySelector('output');
-    inp.oninput = () => { P[k] = +inp.value; out.textContent = P[k]; store.set('hexbrew-raid-params-v8', P); };
+    inp.oninput = () => { P[k] = +inp.value; out.textContent = P[k]; store.set('hexbrew-raid-params-v12', P); };
     box.appendChild(d);
   }
 }
-$('dbgReset').onclick = () => { Object.assign(P, DEFAULTS); store.set('hexbrew-raid-params-v8', P); buildSliders(); };
+$('dbgReset').onclick = () => { Object.assign(P, DEFAULTS); store.set('hexbrew-raid-params-v12', P); buildSliders(); };
 $('dbgCopy').onclick = () => {
   const txt = JSON.stringify(P);
-  const done = () => flash('Params copied');
-  try { navigator.clipboard.writeText(txt).then(done, () => prompt('Copy params', txt)); }
+  try { navigator.clipboard.writeText(txt).then(() => {}, () => prompt('Copy params', txt)); }
   catch (e) { prompt('Copy params', txt); }
 };
+if (DEBUG) { document.body.classList.add('debug'); for (const id of ['btnSetup', 'btnDebug', 'btnResetProg']) $(id).hidden = false; }
+$('buildStamp').textContent = 'Build ' + BUILD;
 
 // ---------- main loop ----------
 let last = performance.now(), acc = 0;
 function frame(now) {
   const dt = Math.min(0.25, (now - last) / 1000); last = now;
   const sim = game.sim;
-  if (sim && sim.phase !== 'over' && !game.paused) {
-    acc += dt * game.speed;
-    let n = 0;
-    while (acc >= DT && n < 400) { sim.step(); acc -= DT; n++; if (sim.phase === 'over') break; }
-  } else acc = 0;
-  if (sim && sim.phase === 'over' && !game.resultShown) showResult();
-  draw(now); updateHud();
+  if (game.screen === 'raid' && sim) {
+    if (sim.phase !== 'over' && !game.paused && !frozen()) {
+      acc += dt * game.speed;
+      let n = 0;
+      while (acc >= DT && n < 400) { stepSim(); acc -= DT; n++; if (sim.phase === 'over' || frozen()) { acc = 0; break; } }
+    } else acc = 0;
+    if (sim.phase === 'over' && !game.resultShown) showResult();
+    if (cv.width !== Math.round($('stage').clientWidth * game.dpr)) resize();
+    easeCam(dt); draw(now); updateHud(now);
+  } else $('ptr').classList.remove('show');
+  if ($('popup').classList.contains('show')) demoFrame(dt, now);
   requestAnimationFrame(frame);
 }
 
-window.__proto = { simulate, Sim, DEFAULTS, P, game, DT };
-buildSetup();
-startRaid();                 // live café visible behind the setup sheet
-game.paused = true;
-if (store.get(GUIDE_SEEN_KEY, 0)) showSetup(); else showGuide('first');
+// ---------- self-test / screenshot states: raid.html?shot=<state> ----------
+// What a tester would do for the active step (used by ?shot=auto and ?shot=step).
+function autoAct() {
+  const s = tut.active; if (!s) return;
+  const u = s.until;
+  if (!u || u === 'tap') { tut.tapped = true; tutCheck(); }
+  else if (u.sel) onCard(CARDS.find(c => c.key === u.sel));
+  else if (u.phase === 'siege') $('btnSiege').onclick();
+  else if (u.sent) { const t = targetTile(s.point, game.sim); tapTile(t[0], t[1]); }
+}
+function runShot() {
+  const def = RAIDS.find(r => r.id === QS.get('raid')) || RAIDS[0];
+  if (SHOT === 'guide') { showGuide(); return; }
+  if (SHOT === 'parity') {                   // the same list tools/staff_sweep/parity.js prints in node
+    const pre = document.createElement('pre'); pre.id = 'parityOut';
+    pre.style.cssText = 'position:fixed;inset:0;z-index:50;margin:0;padding:12px;background:#111;color:#fff;white-space:pre-wrap;user-select:text';
+    pre.textContent = parityHashes().join(' '); document.body.appendChild(pre); return;
+  }
+  if (SHOT === 'busy') {                     // a busy full café with both customer kinds and both crowd cards, paused
+    startRaid({ id: 'busy', custom: true, title: 'Busy café', cafe: +(QS.get('cafe') || 6), seed: +(QS.get('seed') || 7), scout: false, goals: ALL_GOALS,
+      army: { crowd: 2, hog: 2, lock: 1, vamp: 1, polt: 1, shock: 1, dark: 1 } });
+    const at = { 300: 'crowd', 330: 'hog', 700: 'hog', 760: 'crowd' };
+    for (let i = 0; i < +(QS.get('run') || 1500); i++) { if (at[i]) playerInput({ type: 'deploy', card: at[i] }); stepSim(); }
+    cam.cx = 15.5; cam.cy = 12; clampCam();     // between the two rooms, so portrait shows both customer kinds
+    game.paused = true; return;
+  }
+  if (SHOT === 'popup') { openPopup(QS.get('card') || 'lock'); for (let i = 0; i < +(QS.get('n') || 300); i++) demoStep(); return; }
+  if (SHOT === 'step') {                     // a guided raid, n steps in
+    startRaid(def);
+    for (let i = 0; i < +(QS.get('n') || 1); i++) autoAct();
+    for (let i = 0; i < +(QS.get('run') || 0) && !frozen(); i++) stepSim();
+    if (QS.get('run')) game.paused = true;
+    return;
+  }
+  if (SHOT === 'auto' || SHOT === 'fail') {  // play a raid to the end: guided steps as pointed, or (fail) a lone Locksmith
+    startRaid(SHOT === 'fail' ? RAIDS[RAIDS.length - 1] : def);
+    if (SHOT === 'fail') { playerInput({ type: 'siege' }); stepSim(); playerInput({ type: 'deploy', card: 'lock' }); }
+    for (let g = 0; game.sim.phase !== 'over' && g < 400000; g++) { if (tut.active) autoAct(); else stepSim(); }
+  }
+}
+
+window.__proto = { simulate, parityHashes, Sim, DEFAULTS, P, game, DT, RAIDS, LEVELS, tut };
+buildHome();
+showScreen('home');
+if (SHOT) { try { runShot(); } catch (e) { showErr('shot: ' + e.stack); } }
 requestAnimationFrame(frame);
 </script>
 </body>
