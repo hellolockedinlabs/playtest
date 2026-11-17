@@ -121,30 +121,44 @@
   .card .cnt { position:absolute; top:0; left:4px; font-size:11px; font-weight:700; }
   .card.sel { border-color:var(--accent); background:#3d3a2c; }
   .card.off { opacity:.4; }
-  /* Short landscape view (html.side, set by layout() in the script): the cards are a two-column panel on the right,
-     as wide as the space the map leaves free. A phone held upright is drawn rotated (html.rot), so it gets this too. */
-  html.side #mid { flex-direction:row; }
-  html.side #bar { width:clamp(168px, calc(var(--vw) - (var(--vh) - 38px) * 1.4444), 250px); padding:5px 6px;
-                   padding-right:max(6px, env(safe-area-inset-right, 0px)); gap:6px; }
-  html.side #cards { display:grid; grid-template-columns:1fr 1fr; grid-auto-rows:minmax(0, 78px); gap:6px; flex:1;
-                     min-height:0; align-content:start; justify-content:stretch; }
-  html.side .card { max-width:none; height:auto; min-height:0; border-radius:12px; }
-  html.side .card .em { font-size:clamp(20px, 7.2vmin, 30px); line-height:1.1; }
-  html.side .card .nm { font-size:11.5px; font-weight:600; color:var(--ink); line-height:1.1; white-space:normal; text-align:center;
-                        flex:none; max-height:2.2em; }
-  html.side #bar:has(#cards.many) { width:clamp(208px, calc(var(--vw) - (var(--vh) - 38px) * 1.4444), 270px); }      /* 9+ cards: three columns */
-  html.side #cards.many { grid-template-columns:1fr 1fr 1fr; gap:5px; }
-  html.side #cards.many .card .nm { font-size:10px; letter-spacing:-.02em; }
-  html.side .card .cost { top:-4px; right:-4px; font-size:12.5px; min-width:20px; padding:1px 4px; border-radius:9px; }
-  html.side .card .cnt { top:1px; left:5px; font-size:12.5px; }
-  html.side #mis { font-size:13px; }
-  html.side #mispips i { height:10px; }
+  /* Short landscape view (html.side, set by layout() in the script): the café fills the whole screen and the HUD lies
+     over it, a thin strip on top and a tray of cards along the bottom. A phone held upright is drawn rotated
+     (html.rot), so it gets this too. --pt / --pb are the strip and tray heights (set in resize()). */
+  html.side #raid { position:fixed; }
+  html.side #strip { position:absolute; left:0; right:0; top:0; z-index:2; background:linear-gradient(#101218e6, #10121899 70%, #10121800);
+                     padding-bottom:8px; pointer-events:none; }
+  html.side #strip > * { pointer-events:auto; }
+  html.side #goals { flex:0 1 auto; }
+  html.side #goals + button { margin-left:auto; }
+  html.side #bar { position:absolute; left:0; right:0; bottom:0; z-index:2; gap:3px; padding:14px 8px 5px;
+                   padding-left:max(8px, env(safe-area-inset-left, 0px)); padding-right:max(8px, env(safe-area-inset-right, 0px));
+                   padding-bottom:max(5px, env(safe-area-inset-bottom, 0px));
+                   background:linear-gradient(#10121800, #101218d9 16%, #101218f5 40%); pointer-events:none; }
+  html.side #mis, html.side #cards > * { pointer-events:auto; }
+  html.side #mis { width:min(100%, 420px); margin:0 auto; font-size:13px; pointer-events:none; text-shadow:0 1px 2px #000; }
+  html.side #mispips i { height:8px; }
+  html.side #mispips i:not(.on) { background:#2b2733; box-shadow:inset 0 0 0 1px #5a4d70; }
+  html.side #cards { gap:5px; overflow-x:auto; overflow-y:hidden; scrollbar-width:none; padding:5px 4px 0; justify-content:safe center; }
+  html.side #cards::-webkit-scrollbar { display:none; }
+  html.side .card { flex:0 1 78px; min-width:54px; max-width:none; height:68px; padding:2px 1px; border-radius:11px; background:#33363ff2; }
+  html.side .card .em { font-size:28px; line-height:1.15; margin-top:6px; }
+  html.side .card .nm { font-size:10px; font-weight:600; letter-spacing:-.01em; color:var(--ink); line-height:1.05; white-space:normal;
+                        text-align:center; flex:none; max-height:2.1em; }
+  html.side .card .cost { top:-5px; right:-3px; font-size:12px; min-width:19px; padding:0 4px; border-radius:9px; }
+  html.side .card .cnt { top:0; left:4px; font-size:11.5px; }
+  html.side .card.sel { background:#3d3a2c; transform:translateY(-4px); }
+  html.side #banner { top:calc(var(--pt, 36px) + 4px); }
+  html.side #coach { top:calc(var(--pt, 36px) + 2px); }
+  html.side #coach.low { top:auto; bottom:calc(var(--pb, 96px) + 4px); }
+  html.side #btnSiege { bottom:calc(var(--pb, 96px) + 8px); }
+  html.side #proTag, html.side #btnSkip { bottom:calc(var(--pb, 96px) + 4px); }
+  html.side #btnSkip.hi { bottom:auto; top:calc(var(--pt, 36px) + 4px); }
   html.rot { overscroll-behavior:none; }
   html.rot body { position:fixed; left:0; top:0; width:var(--vw); height:var(--vh); transform-origin:0 0;
                   transform:translateX(var(--vh)) rotate(90deg); overflow:hidden; }
   /* rotated: the layout's left is the phone's top edge, its right is the phone's bottom edge */
   html.rot #strip { padding-top:max(3px, env(safe-area-inset-right, 0px)); padding-left:max(6px, env(safe-area-inset-top, 0px)); }
-  html.rot #bar { padding-bottom:5px; padding-right:max(6px, env(safe-area-inset-bottom, 0px)); }
+  html.rot #bar { padding-bottom:5px; padding-left:max(8px, env(safe-area-inset-top, 0px)); padding-right:max(8px, env(safe-area-inset-bottom, 0px)); }
   #ptr { position:fixed; z-index:9; width:54px; height:54px; margin:-27px 0 0 -27px; border:3px solid var(--accent);
          border-radius:50%; pointer-events:none; display:none; animation:ptr .9s ease-in-out infinite; }
   #ptr.show { display:block; }
@@ -614,27 +628,6 @@
 
 <script>
 'use strict';
-// ---------- layout: a phone held upright is drawn rotated a quarter turn, so the game is always landscape there ----------
-// lay.w / lay.h are the size of the layout box (swapped when rotated). ?rot=1 / ?rot=0 force it on or off.
-const lay = { rot: false, w: innerWidth, h: innerHeight };
-function layout() {
-  const iw = innerWidth, ih = innerHeight, f = new URLSearchParams(location.search).get('rot');
-  lay.rot = f === '1' || (f !== '0' && ih > iw && iw <= 600 && matchMedia('(pointer:coarse)').matches);
-  lay.w = lay.rot ? ih : iw; lay.h = lay.rot ? iw : ih;
-  const de = document.documentElement;
-  de.classList.toggle('rot', lay.rot);
-  de.classList.toggle('side', lay.w > lay.h && lay.h <= 520);
-  de.classList.toggle('narrow', lay.w <= 560);
-  de.style.setProperty('--vw', lay.w + 'px'); de.style.setProperty('--vh', lay.h + 'px');
-}
-layout();
-window.addEventListener('resize', layout);          // registered before the canvas resize below: classes first, then sizes
-// Screen coordinates → layout coordinates (the body is turned 90° clockwise when rotated).
-const lpt = e => lay.rot ? [e.clientY, innerWidth - e.clientX] : [e.clientX, e.clientY];
-function lrect(el) {
-  const r = el.getBoundingClientRect();
-  return lay.rot ? { left: r.top, top: innerWidth - r.right, right: r.bottom, bottom: innerWidth - r.left, width: r.height, height: r.width } : r;
-}
 // ============================================================================================
 // Config, part 1: grid and layout (every position in the café). Part 2 (every tunable number)
 // is PARAM_DEFS below. Nothing else in this file holds a game number.
@@ -2099,6 +2092,27 @@ function parityHashes(extra) {
 // PARAM_DEFS or the layout above. Guided raids, tips and card demos are DATA keyed by entity names
 // (card, lock, station and entry keys), never tile coordinates, so they survive a layout change.
 const $ = id => document.getElementById(id);
+// ---------- layout: a phone held upright is drawn rotated a quarter turn, so the game is always landscape there ----------
+// lay.w / lay.h are the size of the layout box (swapped when rotated). ?rot=1 / ?rot=0 force it on or off.
+const lay = { rot: false, w: innerWidth, h: innerHeight };
+function layout() {
+  const iw = innerWidth, ih = innerHeight, f = new URLSearchParams(location.search).get('rot');
+  lay.rot = f === '1' || (f !== '0' && ih > iw && iw <= 600 && matchMedia('(pointer:coarse)').matches);
+  lay.w = lay.rot ? ih : iw; lay.h = lay.rot ? iw : ih;
+  const de = document.documentElement;
+  de.classList.toggle('rot', lay.rot);
+  de.classList.toggle('side', lay.w > lay.h && lay.h <= 520);
+  de.classList.toggle('narrow', lay.w <= 560);
+  de.style.setProperty('--vw', lay.w + 'px'); de.style.setProperty('--vh', lay.h + 'px');
+}
+layout();
+window.addEventListener('resize', layout);          // registered before the canvas resize below: classes first, then sizes
+// Screen coordinates → layout coordinates (the body is turned 90° clockwise when rotated).
+const lpt = e => lay.rot ? [e.clientY, innerWidth - e.clientX] : [e.clientX, e.clientY];
+function lrect(el) {
+  const r = el.getBoundingClientRect();
+  return lay.rot ? { left: r.top, top: innerWidth - r.right, right: r.bottom, bottom: innerWidth - r.left, width: r.height, height: r.width } : r;
+}
 const QS = new URLSearchParams(location.search);
 // Open playtest build: a ⚙ Debug button on the level select turns the dev tools on and off (remembered in this
 // browser). Set OPEN_BUILD to false for the cold-test build: the button is gone and only ?debug=1 shows the tools.
@@ -2128,7 +2142,7 @@ setup.army = Object.assign({}, NO_ARMY, setup.army);
 const entryLabel = c => c.entry === 'wall' ? 'Any outer wall' : c.entry ? ENTRIES[c.entry].label : '';
 
 // Written by hand when a build is made: date + short hash of the commit the build's code is from.
-const BUILD = '2026-11-17 · f8b4d2a';
+const BUILD = '2026-11-17 · 9c58068+landscape';
 
 function armySpace(army) { return CARDS.reduce((a, c) => a + army[c.key] * P[c.space], 0); }
 
@@ -2257,7 +2271,7 @@ const isOpen = i => !!RAIDS[i];      // open playtest build: no locks, every rai
 
 const game = { sim: null, def: null, obs: null, speed: 1, paused: false, sel: null, replay: null, lastRun: null,
   resultShown: false, dpr: 1, bannerTimer: 0, endArmed: 0, goalEnd: false, screen: 'home' };
-const cam = { T: 32, cx: W / 2, cy: H / 2, vw: 300, vh: 300, tx: null, ty: null };     // T = pixels per tile
+const cam = { T: 32, cx: W / 2, cy: H / 2, vw: 300, vh: 300, tx: null, ty: null, pt: 0, pb: 0 };   // pt / pb: HUD lying over the top / bottom of the map (short landscape)     // T = pixels per tile
 const cv = $('cv'), ctx = cv.getContext('2d');
 
 function showScreen(name) {
@@ -2607,25 +2621,29 @@ function drawWorld(c, sim, v, o) {
 }
 
 // ---------- camera: drag to pan, pinch or wheel to zoom ----------
-const fitT = () => Math.min(cam.vw / W, cam.vh / H);                 // whole map visible
+const fitT = () => Math.min(cam.vw / W, (cam.vh - cam.pt - cam.pb) / H);     // whole map visible, clear of the HUD
 const coverT = () => Math.max(cam.vw / W, cam.vh / H);               // map fills the view
 const maxT = () => Math.max(coverT() * 1.4, 64);
 function clampCam() {
   cam.T = Math.max(fitT(), Math.min(maxT(), cam.T));
-  const hw = cam.vw / 2 / cam.T, hh = cam.vh / 2 / cam.T;
-  cam.cx = W <= hw * 2 ? W / 2 : Math.max(hw, Math.min(W - hw, cam.cx));
-  cam.cy = H <= hh * 2 ? H / 2 : Math.max(hh, Math.min(H - hh, cam.cy));
+  cam.cx = clampX(cam.cx); cam.cy = clampY(cam.cy);
 }
-// Portrait: the map fills the height and you pan sideways. Landscape: the whole map fits.
-function resetCam() { cam.T = cam.vw < cam.vh ? Math.min(coverT(), 56) : fitT(); cam.cx = W / 2; cam.cy = H / 2; cam.tx = null; clampCam(); }
+// Limits of the camera centre: every map edge can be brought out from under the HUD, and no further.
+function clampX(x) { const hw = cam.vw / 2 / cam.T; return W <= hw * 2 ? W / 2 : Math.max(hw, Math.min(W - hw, x)); }
+function clampY(y) {
+  const T = cam.T, lo = (cam.vh / 2 - cam.pt) / T, hi = H - (cam.vh / 2 - cam.pb) / T;
+  return hi <= lo ? H / 2 + (cam.pb - cam.pt) / (2 * T) : Math.max(lo, Math.min(hi, y));
+}
+// Portrait: the map fills the height and you pan sideways. Short landscape (HUD over the map): it fills the width and you
+// pan up and down. Otherwise the whole map fits.
+function resetCam() { cam.T = cam.vw < cam.vh || cam.pb ? Math.min(coverT(), 56) : fitT(); cam.cx = W / 2; cam.cy = H / 2; cam.tx = null; clampCam(); }
 const view = () => ({ T: cam.T, ox: cam.vw / 2 - cam.cx * cam.T, oy: cam.vh / 2 - cam.cy * cam.T, w: cam.vw });
 // Pan so the target is as near the middle as the map edges allow (eased; a drag cancels it).
 function focusOn(pt) {
   const t = targetTile(pt, game.sim);
   if (!t) return;
-  const hw = cam.vw / 2 / cam.T, hh = cam.vh / 2 / cam.T;
-  cam.tx = W <= hw * 2 ? W / 2 : Math.max(hw, Math.min(W - hw, t[0] + 0.5));
-  cam.ty = H <= hh * 2 ? H / 2 : Math.max(hh, Math.min(H - hh, t[1] + 0.5));
+  cam.tx = clampX(t[0] + 0.5);
+  cam.ty = clampY(t[1] + 0.5 + (cam.pb - cam.pt) / (2 * cam.T));          // the middle of the part the HUD leaves clear
   if (SHOT) { cam.cx = cam.tx; cam.cy = cam.ty; cam.tx = null; }
 }
 function easeCam(dt) {
@@ -2637,8 +2655,11 @@ function easeCam(dt) {
 function resize() {
   const st = $('stage'), w = st.clientWidth, h = st.clientHeight;
   if (!w || !h) return;
-  const flip = (cam.vw < cam.vh) !== (w < h);
-  cam.vw = w; cam.vh = h; game.dpr = window.devicePixelRatio || 1;
+  const over = document.documentElement.classList.contains('side');
+  const pt = over ? $('strip').offsetHeight - 8 : 0, pb = over ? $('bar').offsetHeight - 10 : 0;      // less their faded edges
+  const flip = (cam.vw < cam.vh) !== (w < h) || !!cam.pb !== !!pb;
+  cam.vw = w; cam.vh = h; cam.pt = pt; cam.pb = pb;
+  $('raid').style.setProperty('--pt', pt + 'px'); $('raid').style.setProperty('--pb', pb + 'px'); game.dpr = window.devicePixelRatio || 1;
   cv.width = Math.round(w * game.dpr); cv.height = Math.round(h * game.dpr);
   if (flip) resetCam(); else clampCam();
 }
@@ -2955,7 +2976,6 @@ function buildCards() {
     d.onclick = () => onCard(c);
     box.appendChild(d);
   }
-  box.classList.toggle('many', box.children.length > 8);
   const pips = $('mispips'); pips.innerHTML = '';
   for (let i = 0; i < game.sim.p.mischiefMax; i++) pips.appendChild(document.createElement('i'));
 }
