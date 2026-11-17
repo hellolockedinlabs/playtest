@@ -52,7 +52,9 @@
   .lv.next .n { background:var(--accent); color:#1c1e23; }
   .lvw { display:flex; flex-direction:column; gap:3px; min-width:0; }
   .lvw .lv { flex:1; }
-  #btnGear.on { border-color:var(--accent); color:var(--accent); }
+  #btnGear.on, button.fs.on { border-color:var(--accent); color:var(--accent); }
+  button.fs { display:grid; place-items:center; }
+  button.fs[hidden] { display:none; }
   .probtn { font-size:12px; padding:5px 8px; color:var(--dim); text-align:left; }
   #proTag { position:absolute; left:8px; bottom:8px; max-width:60%; background:#000c; border-radius:8px; padding:4px 8px;
             font-size:12px; color:var(--dim); display:none; pointer-events:none; }
@@ -283,7 +285,7 @@
 <body>
 <div class="screen" id="home">
   <div class="wrap">
-    <header><h1>Hex<span>brew</span></h1><button id="btnGear" class="ic" aria-label="Debug tools" hidden>⚙</button><button id="btnHelpHome" class="ic" aria-label="How to play">?</button></header>
+    <header><h1>Hex<span>brew</span></h1><button id="btnGear" class="ic" aria-label="Debug tools" hidden>⚙</button><button id="btnFullHome" class="ic fs" aria-label="Full screen" hidden><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4"/></svg></button><button id="btnHelpHome" class="ic" aria-label="How to play">?</button></header>
     <p class="sub">Break into rival cafés. Start with raid 1.</p>
     <div id="levelList"></div>
     <div id="homeFoot">
@@ -300,6 +302,7 @@
   <div id="strip">
     <div id="phase">—</div>
     <div id="goals"></div>
+    <button id="btnFull" class="ic fs" aria-label="Full screen" hidden><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4"/></svg></button>
     <button id="btnPause" class="ic" aria-label="Pause">⏸</button>
     <button id="btnSpeed" class="ic" aria-label="Speed">1×</button>
     <button id="btnGuide" class="ic" aria-label="How to play">?</button>
@@ -574,15 +577,7 @@
     <h2>Café levels</h2>
     <p class="gd-muted">Every café is the same size. After the three guided raids, each one has more in it: more staff, more tables, more customers, and one new defense.</p>
     <div class="gd-tablewrap">
-      <table>
-        <tr><td>Level 1</td><td>No defenses. 3 staff, all Serve first. 4 tables.</td></tr>
-        <tr><td>Level 2</td><td>One staff switches to Fix first.</td></tr>
-        <tr><td>Level 3</td><td>4 staff, one of them Guard first. 5 tables.</td></tr>
-        <tr><td>Level 4</td><td>+ Warden Hound. 6 tables.</td></tr>
-        <tr><td>Level 5</td><td>+ Mimic. 5 staff.</td></tr>
-        <tr><td>Level 6</td><td>+ Lantern. 7 tables.</td></tr>
-        <tr><td>Level 7</td><td>+ Alarm Bell (the full café). 6 staff, 8 tables.</td></tr>
-      </table>
+      <table id="gdLevels"></table>
     </div>
   </section>
 
@@ -2189,7 +2184,7 @@ setup.army = Object.assign({}, NO_ARMY, setup.army);
 const entryLabel = c => c.entry === 'wall' ? 'Any outer wall' : c.entry ? ENTRIES[c.entry].label : '';
 
 // Written by hand when a build is made: date + short hash of the commit the build's code is from.
-const BUILD = '2026-11-17 · 9c58068+landscape2';
+const BUILD = '2026-11-17 · 5';
 
 function armySpace(army) { return CARDS.reduce((a, c) => a + army[c.key] * P[c.space], 0); }
 
@@ -2434,12 +2429,33 @@ function observe(sim, o) {
 // ---------- rendering (shared by the raid map and the popup demo) ----------
 // v = { T, ox, oy }: tile size in px and the pixel offset of tile (0,0)'s corner. o = { now, sel, want, obs, showOw }.
 const EMOJI_FONT = '"Segoe UI Emoji", "Noto Color Emoji", "Apple Color Emoji", sans-serif';
+// Map emoji are drawn once into small canvases and reused (drawImage): colour-font text every frame is the slow part
+// of the map on a phone. Sizes go in steps of 8 device px, so a pinch-zoom reuses sprites and scales them a little.
+const EMO_SPRITES = new Map();
+function emoSprite(ch, devPx) {
+  const size = Math.max(16, Math.ceil(devPx / 8) * 8), key = size + ch;
+  let sp = EMO_SPRITES.get(key);
+  if (!sp) {
+    if (EMO_SPRITES.size > 500) EMO_SPRITES.clear();
+    const cv2 = document.createElement('canvas'), x = cv2.getContext('2d');
+    x.font = `${size}px ${EMOJI_FONT}`;
+    cv2.width = Math.ceil(Math.max(size * 1.5, x.measureText(ch).width + size * 0.5)); cv2.height = Math.ceil(size * 1.5);
+    x.font = `${size}px ${EMOJI_FONT}`; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillStyle = '#fff';
+    x.fillText(ch, cv2.width / 2, cv2.height / 2);
+    sp = { cv: cv2, size }; EMO_SPRITES.set(key, sp);
+  }
+  return sp;
+}
 function drawWorld(c, sim, v, o) {
   const T = v.T, now = o.now || 0;
   c.save(); c.translate(v.ox, v.oy);
   const px = a => (a + 0.5) * T;               // tile coord → pixel centre
   const font = (k, bold) => `${bold ? '700 ' : ''}${Math.max(9, Math.round(T * k))}px system-ui, sans-serif`;
-  const emo = (ch, x, y, k) => { c.fillStyle = '#fff'; c.font = `${Math.max(9, Math.round(T * (k || 0.74)))}px ${EMOJI_FONT}`; c.fillText(ch, x, y + T * 0.05); };
+  const scale = c.getTransform().a || 1;        // device px per layout px
+  const emo = (ch, x, y, k) => {
+    const f = Math.max(9, Math.round(T * (k || 0.74))), sp = emoSprite(ch, f * scale), q = f / sp.size, w = sp.cv.width * q, h = sp.cv.height * q;
+    c.drawImage(sp.cv, x - w / 2, y + T * 0.05 - h / 2, w, h);
+  };
   c.textAlign = 'center'; c.textBaseline = 'middle';
 
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
@@ -2817,7 +2833,7 @@ function defParams(def) {
 }
 function hideOverlays() { for (const id of ['setup', 'result', 'popup', 'guide', 'proEnd']) $(id).classList.remove('show'); }
 function startRaid(def, replay) {
-  hideOverlays(); showScreen('raid'); proOff();
+  hideOverlays(); showScreen('raid'); proOff(); autoFull();
   game.def = def;
   if (replay) {
     game.sim = new Sim(replay.cfg);
@@ -2876,7 +2892,7 @@ function proOff() {
 }
 function startPro(ci) {
   const e = proOf(ci); if (!e) return;
-  hideOverlays(); showScreen('raid'); proOff();
+  hideOverlays(); showScreen('raid'); proOff(); autoFull();
   const L = LEVELS[ci], prm = Object.assign({}, DEFAULTS, L.p);
   const ins = e.inputs.map(([tick, card, x, y]) => card === 'siege' ? { tick, type: 'siege' } : x === undefined ? { tick, type: 'deploy', card } : { tick, type: 'deploy', card, x, y });
   const def = { id: 'pro', custom: true, pro: true, title: 'Café ' + (ci + 1), cafe: ci, seed: e.seed, army: L.army, goals: ALL_GOALS };
@@ -3010,6 +3026,30 @@ $('btnEnd').onclick = () => {
   else { game.endArmed = performance.now() + 2500; flash('Tap again to end the raid'); }
 };
 $('btnPause').onclick = () => { game.paused = !game.paused; };
+
+// ---------- full screen: hides the browser's bars and, where the browser can, locks the screen to landscape ----------
+// On a phone it starts by itself with the first raid (a tap is needed, so not on page load). Leaving it (back gesture
+// or the button) is remembered until the button is used again. With the lock the page is a real landscape page, so
+// the quarter-turn drawing (html.rot) switches itself off.
+const full = { can: !!(document.documentElement.requestFullscreen && document.fullscreenEnabled), declined: false };
+const isFull = () => !!document.fullscreenElement;
+function goFull() {
+  if (!full.can || isFull()) return;
+  let p; try { p = document.documentElement.requestFullscreen({ navigationUI: 'hide' }); } catch (err) { return; }
+  if (p && p.then) p.then(() => { if (screen.orientation && screen.orientation.lock) screen.orientation.lock('landscape').catch(() => {}); }).catch(() => {});
+}
+function autoFull() {
+  if (!full.declined && !SHOT && Math.min(innerWidth, innerHeight) <= 600 && matchMedia('(pointer:coarse)').matches) goFull();
+}
+for (const id of ['btnFull', 'btnFullHome']) {
+  $(id).hidden = !full.can;
+  $(id).onclick = () => { if (isFull()) document.exitFullscreen(); else { full.declined = false; goFull(); } };
+}
+document.addEventListener('fullscreenchange', () => {
+  if (!isFull()) full.declined = true;
+  for (const id of ['btnFull', 'btnFullHome']) $(id).classList.toggle('on', isFull());
+  layout(); resize();
+});
 $('btnSpeed').onclick = () => { game.speed = game.speed === 1 ? 2 : game.speed === 2 ? 4 : 1; };
 
 // ---------- cards and goals ----------
@@ -3386,6 +3426,8 @@ const GUIDE_FMT = {
 };
 // Fills every [data-p] in the guide from the current params (P: PARAM_DEFS defaults plus saved debug values).
 function fillGuide() {
+  // the café table is LEVELS itself, so it can't fall behind the levels again
+  $('gdLevels').innerHTML = LEVELS.map((L, i) => { const t = L.name.replace(/^Level \d+: /, ''); return `<tr><td>Café ${i + 1}</td><td>${t[0].toUpperCase() + t.slice(1)}.</td></tr>`; }).join('');
   document.querySelectorAll('#guide [data-p]').forEach(el => {
     const k = el.dataset.p;
     if (!(k in P)) { el.textContent = '?'; console.error('guide: unknown param ' + k); return; }
