@@ -121,14 +121,30 @@
   .card .cnt { position:absolute; top:0; left:4px; font-size:11px; font-weight:700; }
   .card.sel { border-color:var(--accent); background:#3d3a2c; }
   .card.off { opacity:.4; }
-  @media (orientation:landscape) and (max-height:520px) {      /* phone on its side: cards in a column on the right */
-    #mid { flex-direction:row; }
-    #bar { width:92px; padding:4px; padding-right:max(4px, env(safe-area-inset-right, 0px)); }
-    #cards { flex-direction:column; flex:1; min-height:0; }
-    .card { max-width:none; height:auto; max-height:64px; flex:1 1 0; flex-direction:row; gap:4px; }
-    .card .nm { display:none; }
-    #mis b { display:none; }
-  }
+  /* Short landscape view (html.side, set by layout() in the script): the cards are a two-column panel on the right,
+     as wide as the space the map leaves free. A phone held upright is drawn rotated (html.rot), so it gets this too. */
+  html.side #mid { flex-direction:row; }
+  html.side #bar { width:clamp(168px, calc(var(--vw) - (var(--vh) - 38px) * 1.4444), 250px); padding:5px 6px;
+                   padding-right:max(6px, env(safe-area-inset-right, 0px)); gap:6px; }
+  html.side #cards { display:grid; grid-template-columns:1fr 1fr; grid-auto-rows:minmax(0, 78px); gap:6px; flex:1;
+                     min-height:0; align-content:start; justify-content:stretch; }
+  html.side .card { max-width:none; height:auto; min-height:0; border-radius:12px; }
+  html.side .card .em { font-size:clamp(20px, 7.2vmin, 30px); line-height:1.1; }
+  html.side .card .nm { font-size:11.5px; font-weight:600; color:var(--ink); line-height:1.1; white-space:normal; text-align:center;
+                        flex:none; max-height:2.2em; }
+  html.side #bar:has(#cards.many) { width:clamp(208px, calc(var(--vw) - (var(--vh) - 38px) * 1.4444), 270px); }      /* 9+ cards: three columns */
+  html.side #cards.many { grid-template-columns:1fr 1fr 1fr; gap:5px; }
+  html.side #cards.many .card .nm { font-size:10px; letter-spacing:-.02em; }
+  html.side .card .cost { top:-4px; right:-4px; font-size:12.5px; min-width:20px; padding:1px 4px; border-radius:9px; }
+  html.side .card .cnt { top:1px; left:5px; font-size:12.5px; }
+  html.side #mis { font-size:13px; }
+  html.side #mispips i { height:10px; }
+  html.rot { overscroll-behavior:none; }
+  html.rot body { position:fixed; left:0; top:0; width:var(--vw); height:var(--vh); transform-origin:0 0;
+                  transform:translateX(var(--vh)) rotate(90deg); overflow:hidden; }
+  /* rotated: the layout's left is the phone's top edge, its right is the phone's bottom edge */
+  html.rot #strip { padding-top:max(3px, env(safe-area-inset-right, 0px)); padding-left:max(6px, env(safe-area-inset-top, 0px)); }
+  html.rot #bar { padding-bottom:5px; padding-right:max(6px, env(safe-area-inset-bottom, 0px)); }
   #ptr { position:fixed; z-index:9; width:54px; height:54px; margin:-27px 0 0 -27px; border:3px solid var(--accent);
          border-radius:50%; pointer-events:none; display:none; animation:ptr .9s ease-in-out infinite; }
   #ptr.show { display:block; }
@@ -144,23 +160,19 @@
   #popup h2 { font-size:22px; margin:2px 0 6px; }
   #popup p { margin:6px 0 0; }
   #demoCv { width:100%; aspect-ratio:10 / 7; border-radius:8px; background:#15171b; display:block; }
-  @media (orientation:landscape) and (max-height:520px) {
-    #popup .sheet { max-width:680px; display:grid; grid-template-columns:1fr 1fr; gap:14px; align-items:center; padding:12px; }
-    #popup .eyebrow { margin-top:0; }
-  }
+  html.side #popup .sheet { max-width:680px; display:grid; grid-template-columns:1fr 1fr; gap:14px; align-items:center; padding:12px; }
+  html.side #popup .eyebrow { margin-top:0; }
   #resGoals { margin:10px 0 0; display:flex; flex-direction:column; gap:8px; }
   .rg { display:grid; grid-template-columns:22px 1fr; gap:0 6px; }
   .rg b { font-size:15px; }
   .rg .why { grid-column:2; color:var(--dim); font-size:13.5px; }
   #resNote { margin-top:10px; }
-  @media (orientation:landscape) and (max-height:520px) {
-    #result #resStars { font-size:22px; line-height:1; margin-top:-26px; }      /* beside the title: the buttons must fit on a 360 px high screen */
-    #resGoals { gap:4px; margin-top:4px; }
-    #result { padding:8px; }
-    #result .sheet { max-width:680px; padding:10px 16px; }
-    #result .rg .why { font-size:12.5px; }
-    #result .btns { margin-top:8px; }
-  }
+  html.side #result #resStars { font-size:22px; line-height:1; margin-top:-26px; }      /* beside the title: the buttons must fit on a 360 px high screen */
+  html.side #resGoals { gap:4px; margin-top:4px; }
+  html.side #result { padding:8px; }
+  html.side #result .sheet { max-width:680px; padding:10px 16px; }
+  html.side #result .rg .why { font-size:12.5px; }
+  html.side #result .btns { margin-top:8px; }
   .overlay { position:fixed; inset:0; background:#000a; display:none; align-items:flex-start;
              justify-content:center; overflow-y:auto; z-index:10; padding:16px; }
   .overlay.show { display:flex; }
@@ -212,7 +224,7 @@
   #guide .gd-muted { color:var(--dim); }
   #guide .gd-graybox { border:1px dashed var(--line); border-radius:10px; padding:12px 14px; color:var(--dim); font-size:14px; }
   #guide .gd-stars, #guide .gd-roles { display:grid; grid-template-columns:repeat(3, 1fr); gap:10px; }
-  @media (max-width: 560px) { #guide .gd-stars, #guide .gd-roles { grid-template-columns:1fr; } }
+  html.narrow #guide .gd-stars, html.narrow #guide .gd-roles { grid-template-columns:1fr; }
   #guide .gd-star, #guide .gd-role { background:var(--panel); border-radius:12px; padding:12px 14px;
                                       display:flex; flex-direction:column; gap:4px; min-width:0; }
   #guide .gd-star b::before { content:"★ "; color:var(--accent); }
@@ -602,6 +614,27 @@
 
 <script>
 'use strict';
+// ---------- layout: a phone held upright is drawn rotated a quarter turn, so the game is always landscape there ----------
+// lay.w / lay.h are the size of the layout box (swapped when rotated). ?rot=1 / ?rot=0 force it on or off.
+const lay = { rot: false, w: innerWidth, h: innerHeight };
+function layout() {
+  const iw = innerWidth, ih = innerHeight, f = new URLSearchParams(location.search).get('rot');
+  lay.rot = f === '1' || (f !== '0' && ih > iw && iw <= 600 && matchMedia('(pointer:coarse)').matches);
+  lay.w = lay.rot ? ih : iw; lay.h = lay.rot ? iw : ih;
+  const de = document.documentElement;
+  de.classList.toggle('rot', lay.rot);
+  de.classList.toggle('side', lay.w > lay.h && lay.h <= 520);
+  de.classList.toggle('narrow', lay.w <= 560);
+  de.style.setProperty('--vw', lay.w + 'px'); de.style.setProperty('--vh', lay.h + 'px');
+}
+layout();
+window.addEventListener('resize', layout);          // registered before the canvas resize below: classes first, then sizes
+// Screen coordinates → layout coordinates (the body is turned 90° clockwise when rotated).
+const lpt = e => lay.rot ? [e.clientY, innerWidth - e.clientX] : [e.clientX, e.clientY];
+function lrect(el) {
+  const r = el.getBoundingClientRect();
+  return lay.rot ? { left: r.top, top: innerWidth - r.right, right: r.bottom, bottom: innerWidth - r.left, width: r.height, height: r.width } : r;
+}
 // ============================================================================================
 // Config, part 1: grid and layout (every position in the café). Part 2 (every tunable number)
 // is PARAM_DEFS below. Nothing else in this file holds a game number.
@@ -2613,7 +2646,7 @@ window.addEventListener('resize', resize);
 
 const ptrs = new Map();
 let gest = null;
-const stagePos = e => { const r = cv.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+const stagePos = e => { const r = lrect(cv), p = lpt(e); return [p[0] - r.left, p[1] - r.top]; };
 function pinchState() {
   const [a, b] = [...ptrs.values()];
   const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2, v = view();
@@ -2812,9 +2845,9 @@ function proAct(dt) {
   const a = pro.act; if (!a) return;
   if (!pro.hold) a.t += dt * (game.speed >= 4 ? 2 : 1);
   if (a.skip && a.t < ACT.done) a.t = Math.max(a.t, ACT.toSpot);        // tapped early: finish the hand's tap, then go on
-  const el = document.querySelector('#cards .card[data-k="' + a.m.card + '"]'), cr = el ? el.getBoundingClientRect() : null;
-  const cardPos = cr ? [cr.left + cr.width / 2, cr.top + cr.height * 0.45] : [innerWidth / 2, innerHeight - 40];
-  const r = cv.getBoundingClientRect(), v = view();
+  const el = document.querySelector('#cards .card[data-k="' + a.m.card + '"]'), cr = el ? lrect(el) : null;
+  const cardPos = cr ? [cr.left + cr.width / 2, cr.top + cr.height * 0.45] : [lay.w / 2, lay.h - 40];
+  const r = lrect(cv), v = view();
   const spotPos = [Math.max(r.left + 14, Math.min(r.right - 14, r.left + (a.spot[0] + 0.5) * v.T + v.ox)), Math.max(r.top + 14, Math.min(r.bottom - 40, r.top + (a.spot[1] + 0.5) * v.T + v.oy))];
   const from = a.from || (a.from = pro.hand || [r.left + r.width / 2, r.top + r.height * 0.6]);
   const ease = k => { k = Math.max(0, Math.min(1, k)); return k * k * (3 - 2 * k); }, mix = (p, q, k) => [p[0] + (q[0] - p[0]) * k, p[1] + (q[1] - p[1]) * k];
@@ -2922,6 +2955,7 @@ function buildCards() {
     d.onclick = () => onCard(c);
     box.appendChild(d);
   }
+  box.classList.toggle('many', box.children.length > 8);
   const pips = $('mispips'); pips.innerHTML = '';
   for (let i = 0; i < game.sim.p.mischiefMax; i++) pips.appendChild(document.createElement('i'));
 }
@@ -3060,11 +3094,11 @@ function updateHud(now) {
     else if (q.btn === 'siege') el = $('btnSiege');
     else if (q.hud === 'mis') el = $('mis');
     else if (q.hud) el = document.querySelector('#goals .goal[data-g="' + q.hud + '"]');
-    if (el) { const r = el.getBoundingClientRect(); if (r.width) pos = [r.left + r.width / 2, r.top + r.height / 2]; }
+    if (el) { const r = lrect(el); if (r.width) pos = [r.left + r.width / 2, r.top + r.height / 2]; }
     else {
       const t = targetTile(q, sim);
       if (t) {
-        const r = cv.getBoundingClientRect(), v = view();
+        const r = lrect(cv), v = view();
         pos = [Math.max(r.left + 20, Math.min(r.right - 20, r.left + (t[0] + 0.5) * v.T + v.ox)),
           Math.max(r.top + 20, Math.min(r.bottom - 20, r.top + (t[1] + 0.5) * v.T + v.oy))];
       }
@@ -3078,14 +3112,14 @@ function updateHud(now) {
     if (cur && pro.on) { coach.classList.remove('pop'); void coach.offsetWidth; coach.classList.add('pop'); }     // a new pro line: make the change visible
   }
   if (cur) {
-    const r = $('stage').getBoundingClientRect();
+    const r = lrect($('stage'));
     const py = pos ? pos[1] : pro.act ? r.top + (pro.act.spot[1] + 0.5) * view().T + view().oy : null;     // keep the line off the spot being tapped
     coach.classList.toggle('low', py !== null && py > r.top && py < r.top + r.height * 0.45);
     $('proTag').style.visibility = coach.classList.contains('low') ? 'hidden' : '';
     $('btnSkip').classList.toggle('hi', coach.classList.contains('low'));       // Skip stays clear of the line
   }
   ptr.classList.toggle('show', !!pos && !document.querySelector('.overlay.show'));
-  if (pos) { ptr.style.left = pos[0] + 'px'; ptr.style.top = pos[1] + 'px'; ptr.classList.toggle('up', pos[1] > window.innerHeight - 96); }
+  if (pos) { ptr.style.left = pos[0] + 'px'; ptr.style.top = pos[1] + 'px'; ptr.classList.toggle('up', pos[1] > lay.h - 96); }
 
   if ($('debug').classList.contains('show')) {
     $('dbgInfo').textContent = `seed ${sim.cfg.seed}  tick ${sim.tick}  phase ${sim.phase}\n` +
@@ -3475,7 +3509,7 @@ function runShot() {
     }
     const want = Math.max(1, +(QS.get('move') || 2)) - 1;
     for (let g = 0; g < 400000 && game.sim.phase !== 'over' && !(pro.act && pro.mi === want); g++) { if (pro.act) { pro.last = pro.act.m.tick; pro.act = null; pro.mi++; proCheck(); } else stepSim(); }
-    if (pro.act) { pro.act.t = +(QS.get('at') || 1.45); pro.hold = true; pro.act.from = [innerWidth / 2, innerHeight * 0.6]; }
+    if (pro.act) { pro.act.t = +(QS.get('at') || 1.45); pro.hold = true; pro.act.from = [lay.w / 2, lay.h * 0.6]; }
     return;
   }
   if (SHOT === 'popup') { openPopup(QS.get('card') || 'lock'); for (let i = 0; i < +(QS.get('n') || 300); i++) demoStep(); return; }
